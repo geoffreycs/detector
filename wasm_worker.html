@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8">
+    <script src="worker_common.js"></script>
+    <title>TensorFlow on WebAssembly</title>
+</head>
+
+<body>
+    <video width="300" height="300" id="webcam">
+        Please wait...
+    </video>
+    <canvas width="300" height="300" id="display">
+        Please wait...
+    </canvas>
+    <br/>
+    <div id="class">Running...</div>
+    <script type="text/javascript">
+        require('@tensorflow/tfjs-backend-wasm');
+        tf.setBackend('wasm').then(() => main());
+    </script>
+</body>
+
+</html>
