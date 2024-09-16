@@ -8,8 +8,7 @@ app.whenReady().then(() => {
         webPreferences: {
             sandbox: false,
             nodeIntegration: true,
-            contextIsolation: false,
-            nodeIntegrationInWorker: true
+            contextIsolation: false
         }
     })
 
