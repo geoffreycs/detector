@@ -15,7 +15,7 @@ const ctx1 = osc.getContext('2d');
 /**
  * @type {Number}
  */
-let ratio = Infinity;
+let ratio = 0 | 0;
 
 /**
  * @type {Function}
@@ -46,37 +46,22 @@ const prepareFile = async (url) => {
 
 /**
  * @param {Function} resolve 
- * @param {Function} reject 
  * @param {HTMLCanvasElement} canvas
  * @param {HTMLVideoElement} webcam
  */
-const checkReady = function (resolve, reject, canvas, webcam) {
+const checkReady = function (resolve, canvas, webcam) {
     ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
-    if (ratio == Infinity) {
-        setTimeout(() => checkReady(resolve, null, canvas, webcam), 50);
+    if (ratio === Infinity) {
+        setTimeout(() => checkReady(resolve, canvas, webcam), 50);
     } else {
         resolve();
     }
 }
 
 async function main() {
-    console.log("Starting HTTP server to self-serve modules on port " + String(port));
-    const server = http.createServer(async (req, res) => {
-        if (req.socket.remoteAddress == "::1") {
-            const file = await prepareFile(req.url);
-            const statusCode = file.found ? 200 : 404;
-            const mimeType = MIME_TYPES[file.ext];
-            res.writeHead(statusCode, { "Content-Type": mimeType });
-            file.stream.pipe(res);
-            console.log(`${req.method} ${req.url} ${statusCode}`);
-        } else {
-            console.log("Ignored request from " + req.socket.remoteAddress);
-        }
-    });
-    server.listen(port);
 
     //tflite.setWasmPath('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/')
-    tflite.setWasmPath('http://localhost:' + port.toString() + '/');
+    tflite.setWasmPath('http://127.0.0.1:' + port.toString() + '/');
 
     console.log("Acquiring webcam");
     /**
@@ -96,16 +81,20 @@ async function main() {
     ctx2.fillText("Waiting for webcam", 20, canvas.height / 2);
     const desc = document.getElementById("class");
 
-    console.log("Waiting for video start")
-    await new Promise(
-        /**
-         * @param {Function} resolve 
-         * @param {Function} reject 
-         */
-        (resolve, reject) => {
-            checkReady(resolve, reject, canvas, webcam);
+    console.log("Starting HTTP server to self-serve modules on port " + String(port));
+    const server = http.createServer(async (req, res) => {
+        if (req.socket.remoteAddress.includes("127.0.0.1")) {
+            const file = await prepareFile(req.url);
+            const statusCode = file.found ? 200 : 404;
+            const mimeType = MIME_TYPES[file.ext];
+            res.writeHead(statusCode, { "Content-Type": mimeType });
+            file.stream.pipe(res);
+            console.log(`${req.method} ${req.url} ${statusCode}`);
+        } else {
+            console.log("Ignored request from " + req.socket.remoteAddress);
         }
-    );
+    });
+    server.listen(port);
 
     console.log("Loading model");
     const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("alexandra/alexandrainst_drone_detect.tflite")).buffer);
@@ -113,14 +102,26 @@ async function main() {
     server.close();
     server.removeAllListeners();
 
+    console.log("Waiting for video start")
+    await new Promise(
+        /**
+         * @param {Function} resolve 
+         * @param {Function} reject 
+         */
+        (resolve) => {
+            checkReady(resolve, canvas, webcam);
+        }
+    );
+
+
     console.log("Running model");
     const vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio];
     const cvs_params = [canvas.width, canvas.height];
 
-    const expandTensor = (tf.getBackend() === 'webgpu') ?
+    const expandTensor = (tf.getBackend() == 'webgpu') ?
         /**
          * @param {tf.Tensor3D} source 
-         * @returns {tf.Tensor<tf.Rank>}
+         * @returns {tf.Tensor}
          */
         source => {
             const inGPU = source.dataToGPU();
@@ -130,7 +131,7 @@ async function main() {
         } :
         /**
          * @param {tf.Tensor3D} source 
-         * @returns {tf.Tensor<tf.Rank>}
+         * @returns {tf.Tensor}
          */
         source => {
             return tf.expandDims(source, 0);
