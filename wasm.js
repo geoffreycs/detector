@@ -1,17 +1,18 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 
+app.disableDomainBlockingFor3DAPIs();
 app.whenReady().then(() => {
-
     const win = new BrowserWindow({
         width: 700,
-        height: 400,
+        height: 450,
         webPreferences: {
             sandbox: false,
             nodeIntegration: true,
             contextIsolation: false
         }
-    })
+    });
 
+    ipcMain.on('error', () => { win.webContents.openDevTools({ mode: 'detach' }); });
     win.loadFile('wasm_worker.html');
     //win.webContents.openDevTools();
 

@@ -10,13 +10,17 @@ exports.loadLabels = function (name) {
      */
     let labels = [];
     const lines = fs.readFileSync(name).toString().split(/\r?\n/);
-    lines.forEach(
-        /**
-         * @param {String} element 
-         */
-        element => {
-            labels.push(element.split("  ")[1]);
-        });
+    if (lines[1] == '') {
+        labels = [lines[0].split("  ")[1]]
+    } else {
+        lines.forEach(
+            /**
+             * @param {String} element 
+             */
+            element => {
+                labels.push(element.split("  ")[1]);
+            });
+    }
     return labels;
 }
 
@@ -51,10 +55,10 @@ const Reformatter = (dw, dh) => {
      */
     return (box_raw) => {
         return {
-            x: dw*box_raw[1],
-            y: dh*box_raw[0],
-            w: dw*(box_raw[3] - box_raw[1]),
-            h: dh*(box_raw[2] - box_raw[0])
+            x: dw * box_raw[1],
+            y: dh * box_raw[0],
+            w: dw * (box_raw[3] - box_raw[1]),
+            h: dh * (box_raw[2] - box_raw[0])
         }
     }
 }
