@@ -65,6 +65,16 @@ const server = http.createServer(async (req, res) => {
 
 async function main() {
     try {
+        console.log("Creating output renderer");
+        /**
+         * @type {HTMLCanvasElement}
+         */
+        const canvas = document.getElementById('display');
+        const ctx2 = canvas.getContext('2d');
+        ctx2.font = "15px Arial";
+        ctx2.fillText("Waiting for webcam", 20, (canvas.height / 2) - 7);
+        const desc = document.getElementById("class");
+
         console.log("Acquiring webcam");
         /**
          * @type {HTMLImageElement}
@@ -155,16 +165,6 @@ async function main() {
             }
         }
         createWebsocket();
-
-        console.log("Creating output renderer");
-        /**
-         * @type {HTMLCanvasElement}
-         */
-        const canvas = document.getElementById('display');
-        const ctx2 = canvas.getContext('2d');
-        ctx2.font = "15px Arial";
-        ctx2.fillText("Waiting for webcam", 20, (canvas.height / 2) - 7);
-        const desc = document.getElementById("class");
 
         console.log("Starting HTTP server to self-serve modules on port " + port.toString());
         server.listen(port);
