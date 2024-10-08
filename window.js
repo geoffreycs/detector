@@ -1,3 +1,5 @@
+const interval = Math.round(1000 / 25);
+
 const { ipcRenderer } = require('electron/renderer');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
@@ -32,7 +34,23 @@ const MIME_TYPES = {
 const assets = path.join(process.cwd(), "./node_modules/@tensorflow/tfjs-tflite/wasm");
 const toBool = [() => true, () => false];
 const port = Math.round(Math.random() * (10000 - 9000) + 9000);
-
+const server = http.createServer(async (req, res) => {
+    try {
+        if (req.socket.remoteAddress.includes("127.0.0.1")) {
+            const file = await prepareFile(req.url);
+            const statusCode = file.found ? 200 : 404;
+            const mimeType = MIME_TYPES[file.ext];
+            res.writeHead(statusCode, { "Content-Type": mimeType });
+            file.stream.pipe(res);
+            console.log(`${req.method} ${req.url} ${statusCode}`);
+        } else {
+            console.log("Ignored request from " + req.socket.remoteAddress);
+        }
+    }
+    catch (err) {
+        onError(err);
+    }
+});
 const prepareFile = async (url) => {
     const paths = [assets, url];
     const filePath = path.join(...paths);
@@ -88,27 +106,10 @@ async function main() {
         const canvas = document.getElementById('display');
         const ctx2 = canvas.getContext('2d');
         ctx2.font = "15px Arial";
-        ctx2.fillText("Waiting for webcam", 20, canvas.height / 2);
+        ctx2.fillText("Waiting for webcam", 20, (canvas.height / 2) - 7);
         const desc = document.getElementById("class");
 
         console.log("Starting HTTP server to self-serve modules on port " + String(port));
-        const server = http.createServer(async (req, res) => {
-            try {
-                if (req.socket.remoteAddress.includes("127.0.0.1")) {
-                    const file = await prepareFile(req.url);
-                    const statusCode = file.found ? 200 : 404;
-                    const mimeType = MIME_TYPES[file.ext];
-                    res.writeHead(statusCode, { "Content-Type": mimeType });
-                    file.stream.pipe(res);
-                    console.log(`${req.method} ${req.url} ${statusCode}`);
-                } else {
-                    console.log("Ignored request from " + req.socket.remoteAddress);
-                }
-            }
-            catch (err) {
-                onError(err);
-            }
-        });
         server.listen(port);
 
         console.log("Loading model");
@@ -211,18 +212,20 @@ async function main() {
             output['TFLite_Detection_PostProcess:3'].dispose();
 
             const converted = reformat(dataOut[0][0]);
-            ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
-            ctx2.drawImage(osc, 0, 0);
-            ctx2.beginPath();
-            ctx2.rect(converted.x, converted.y, converted.w, converted.h);
-            ctx2.stroke();
+            requestAnimationFrame(() => {
+                ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
+                ctx2.drawImage(osc, 0, 0);
+                ctx2.beginPath();
+                ctx2.rect(converted.x, converted.y, converted.w, converted.h);
+                ctx2.stroke();
+            });
             const tag = labels[dataOut[1][0]];
             if (tag == undefined) {
                 desc.innerText = "id " + dataOut[1][0].toString() + ", " + String(dataOut[2][0]);
             } else {
                 desc.innerText = tag + ", " + String(dataOut[2][0]);
             }
-            setTimeout(doInference, 1);
+            setTimeout(doInference, interval);
         }
 
         const runner = doInference();
