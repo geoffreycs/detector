@@ -1,3 +1,5 @@
+const interval = Math.round(1000 / 20);
+
 const { ipcRenderer } = require('electron/renderer');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
@@ -11,8 +13,8 @@ const fs = require('fs');
 const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
-let ratio = Infinity;
-var vid_params = [0.0, 0.0, 0.0];
+// var vid_params = [0.0, 0.0, 0.0];
+const urlCreator = window.URL || window.webkitURL;
 
 /**
  * @param {Error} error 
@@ -32,7 +34,6 @@ const MIME_TYPES = {
 const assets = path.join(process.cwd(), "./node_modules/@tensorflow/tfjs-tflite/wasm");
 const toBool = [() => true, () => false];
 const port = Math.round(Math.random() * (10000 - 9000) + 9000);
-
 const prepareFile = async (url) => {
     const paths = [assets, url];
     const filePath = path.join(...paths);
@@ -44,42 +45,117 @@ const prepareFile = async (url) => {
     const stream = fs.createReadStream(streamPath);
     return { found, ext, stream };
 };
+const server = http.createServer(async (req, res) => {
+    try {
+        if (req.socket.remoteAddress.includes("127.0.0.1")) {
+            const file = await prepareFile(req.url);
+            const statusCode = file.found ? 200 : 404;
+            const mimeType = MIME_TYPES[file.ext];
+            res.writeHead(statusCode, { "Content-Type": mimeType });
+            file.stream.pipe(res);
+            console.log(`${req.method} ${req.url} ${statusCode}`);
+        } else {
+            console.log("Ignored request from " + req.socket.remoteAddress);
+        }
+    }
+    catch (err) {
+        onError(err);
+    }
+});
 
 async function main() {
     try {
-        /**
-         * @type {HTMLSelectElement}
-         */
-        const selector = document.getElementById("cameras");
-        const findCams = function () {
-            const mediaDevices = navigator.mediaDevices.enumerateDevices();
-            mediaDevices.then(devices => {
-                try {
-                    devices.forEach(function (candidate) {
-                        if (candidate.kind == "videoinput") {
-                            const newOption = new Option();
-                            newOption.value = candidate.deviceId;
-                            newOption.innerText = candidate.label;
-                            selector.appendChild(newOption);
-                        }
-                    });
-                }
-                catch (e) {
-                    onError(e);
-                }
-            });
-            mediaDevices.catch(onError);
-        }
-        findCams();
-
         console.log("Acquiring webcam");
         /**
-         * @type {HTMLVideoElement}
+         * @type {HTMLImageElement}
          */
         const webcam = document.getElementById('webcam');
-        webcam.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
-        // video: 
-        webcam.play();
+        let lastFrame = null;
+        let ratio = 1.0;
+        let loadFlag = false;
+        const updateFrame = function () {
+            webcam.src = urlCreator.createObjectURL(lastFrame);
+            lastFrame = null;
+        }
+
+        /**
+         * @param {WebSocket} ws 
+         */
+        async function killSocket(ws) {
+            console.log("Closing current socket");
+            ws.removeEventListener('message', ws.onmessage);
+            ws.removeEventListener('error', ws.onerror);
+            ws.close();
+            loadFlag = false;
+            setTimeout(createWebsocket, 200);
+        }
+
+        /**
+         * @type {HTMLButtonElement}
+         */
+        const change = document.querySelector('#change');
+
+        webcam.onload = function () {
+            urlCreator.revokeObjectURL(webcam.src);
+            loadFlag = true;
+        };
+        /**
+         * @type {HTMLInputElement}
+         */
+        const source = document.querySelector('#source');
+        source.value = "10.1.121.96:8080";
+        /**
+         * @type {NodeJS.Timeout}
+         */
+        var timer = null;
+        let failCount = 0 | 0;
+        function createWebsocket() {
+            console.log("Opening WebSocket to " + source.value);
+            try {
+                const ws = new WebSocket('ws://' + source.value + '/ws');
+                /**
+                 * @type {NodeJS.Timeout}
+                 */
+                timer = null;
+                ws.onerror = function (e) {
+                    console.error(ev);
+                    clearTimeout(timer);
+                    killSocket(ws);
+                }
+                ws.onmessage = function (e) {
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
+                    if (!lastFrame) {
+                        requestAnimationFrame(updateFrame);
+                    }
+                    lastFrame = e.data;
+                    timer = setTimeout(() => {
+                        console.log("No data in 1000ms. Resetting socket.");
+                        killSocket(ws);
+                    }, 1000);
+                }
+                if (change.onclick) {
+                    change.removeEventListener("click", change.onclick);
+                }
+                change.onclick = () => {
+                    console.log("Changing server address");
+                    clearTimeout(timer);
+                    killSocket(ws);
+                }
+                console.log("WebSocket opened");
+                failCount = 0 | 0;
+            } catch (e) {
+                failCount++;
+                if (failCount <= 100) {
+                    console.error(e);
+                    setTimeout(createWebsocket, 100);
+                } else {
+                    onError(e);
+                }
+            }
+        }
+        createWebsocket();
 
         console.log("Creating output renderer");
         /**
@@ -88,27 +164,10 @@ async function main() {
         const canvas = document.getElementById('display');
         const ctx2 = canvas.getContext('2d');
         ctx2.font = "15px Arial";
-        ctx2.fillText("Waiting for webcam", 20, canvas.height / 2);
+        ctx2.fillText("Waiting for webcam", 20, (canvas.height / 2) - 7);
         const desc = document.getElementById("class");
 
-        console.log("Starting HTTP server to self-serve modules on port " + String(port));
-        const server = http.createServer(async (req, res) => {
-            try {
-                if (req.socket.remoteAddress.includes("127.0.0.1")) {
-                    const file = await prepareFile(req.url);
-                    const statusCode = file.found ? 200 : 404;
-                    const mimeType = MIME_TYPES[file.ext];
-                    res.writeHead(statusCode, { "Content-Type": mimeType });
-                    file.stream.pipe(res);
-                    console.log(`${req.method} ${req.url} ${statusCode}`);
-                } else {
-                    console.log("Ignored request from " + req.socket.remoteAddress);
-                }
-            }
-            catch (err) {
-                onError(err);
-            }
-        });
+        console.log("Starting HTTP server to self-serve modules on port " + port.toString());
         server.listen(port);
 
         console.log("Loading model");
@@ -125,42 +184,23 @@ async function main() {
          * @param {Function} resolve 
          */
         const checkReady = function (resolve) {
-            ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
-            if (ratio === Infinity) {
+            if (!loadFlag) {
                 setTimeout(() => checkReady(resolve), 50);
             } else {
                 resolve();
             }
         }
-        const CRwrapper = async () => {
-            return new Promise(
-                /**
-                 * @param {Function} resolve 
-                 */
-                (resolve) => {
-                    checkReady(resolve);
-                }
-            );
-        }
-        await CRwrapper();
-        function paramGen() {
-            return [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio];
-        }
-        selector.onchange = function () {
-            webcam.pause();
-            const newCam = navigator.mediaDevices.getUserMedia({ video: { deviceId: selector.value ? { exact: selector.value } : undefined } });
-            newCam.then(async stream => {
-                webcam.srcObject = stream;
-                ctx1.clearRect(0, 0, osc.width, osc.height);
-                webcam.play();
-                await CRwrapper();
-                vid_params = paramGen();
-            });
-            newCam.catch(onError);
-        };
-
+        await new Promise(
+            /**
+             * @param {Function} resolve 
+             */
+            (resolve) => {
+                checkReady(resolve);
+            }
+        );
+        ratio = Math.min(canvas.width / webcam.width, canvas.height / webcam.height);
         console.log("Running model");
-        vid_params = paramGen();
+        const vid_params = [(canvas.height - (webcam.height * ratio)) / 2, webcam.width * ratio, webcam.height * ratio];
         const cvs_params = [canvas.width, canvas.height];
 
         const expandTensor = (tf.getBackend() == 'webgpu') ?
@@ -178,12 +218,10 @@ async function main() {
              * @param {tf.Tensor3D} source 
              * @returns {tf.Tensor}
              */
-            source => {
-                return tf.expandDims(source, 0);
-            }
+            source => tf.expandDims(source, 0);
 
         const doInference = async function () {
-            ctx1.drawImage(webcam, 0, 0, webcam.videoWidth, webcam.videoHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
+            ctx1.drawImage(webcam, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
             const img = tf.browser.fromPixels(osc);
             const input = expandTensor(img);
 
@@ -211,18 +249,20 @@ async function main() {
             output['TFLite_Detection_PostProcess:3'].dispose();
 
             const converted = reformat(dataOut[0][0]);
-            ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
-            ctx2.drawImage(osc, 0, 0);
-            ctx2.beginPath();
-            ctx2.rect(converted.x, converted.y, converted.w, converted.h);
-            ctx2.stroke();
+            requestAnimationFrame(() => {
+                ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
+                ctx2.drawImage(osc, 0, 0);
+                ctx2.beginPath();
+                ctx2.rect(converted.x, converted.y, converted.w, converted.h);
+                ctx2.stroke();
+            });
             const tag = labels[dataOut[1][0]];
             if (tag == undefined) {
                 desc.innerText = "id " + dataOut[1][0].toString() + ", " + String(dataOut[2][0]);
             } else {
                 desc.innerText = tag + ", " + String(dataOut[2][0]);
             }
-            setTimeout(doInference, 1);
+            setTimeout(doInference, interval);
         }
 
         const runner = doInference();

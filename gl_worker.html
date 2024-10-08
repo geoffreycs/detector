@@ -6,14 +6,24 @@
     <meta charset="utf-8">
     <script src="window.js"></script>
     <title>TensorFlow on WebGL</title>
+    <style>
+		html, body {
+			margin: .1em;
+		}
+        #webcam {
+			max-width: 300px;
+			max-height: 300px;
+		}
+    </style>
 </head>
 
 <body>
-    <select id="cameras">
-    </select><br />
-    <video width="300" height="300" id="webcam">
-        Please wait...
-    </video>
+    <form>
+        <label for="source">Source IP:port - </label>
+        <input type="text" id="source"/> 
+        <button type="button" id="change">Set</button>
+    </form>
+    <img id="webcam" width="300"/>
     <canvas width="300" height="300" id="display">
         Please wait...
     </canvas>

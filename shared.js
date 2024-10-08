@@ -25,7 +25,7 @@ exports.loadLabels = function (name) {
 }
 
 function ArrayChunk() {
-    //Stolen from
+    // Stolen from
     // ourcodeworld.com/articles/read/278/how-to-split-an-array-into-chunks-of-the-same-size-easily-in-javascript
     /**
      * @param {Float32Array} arrayIn 
@@ -34,7 +34,7 @@ function ArrayChunk() {
     function chunkArray(arrayIn) {
         var index = 0;
         const arrayLength = arrayIn.length;
-        var tempArray = [];
+        let tempArray = [];
         for (index = 0; index < arrayLength; index += 4) {
             tempArray.push(arrayIn.slice(index, index + 4));
         }
