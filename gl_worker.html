@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="utf-8">
     <script src="window.js"></script>
+    <script src="flv.min.js"></script>
     <title>TensorFlow on WebGL</title>
     <style>
 		html, body {
@@ -18,12 +19,9 @@
 </head>
 
 <body>
-    <form>
-        <label for="source">Source IP:port - </label>
-        <input type="text" id="source"/> 
-        <button type="button" id="change">Set</button>
-    </form>
-    <img id="webcam" width="300"/>
+    <video width="300" height="300" id="webcam" preload="auto">
+        Please wait...
+    </video>
     <canvas width="300" height="300" id="display">
         Please wait...
     </canvas>

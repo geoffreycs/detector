@@ -1,5 +1,4 @@
 const interval = Math.round(1000 / 20);
-
 const { ipcRenderer } = require('electron/renderer');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
@@ -13,8 +12,21 @@ const fs = require('fs');
 const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
-// var vid_params = [0.0, 0.0, 0.0];
-const urlCreator = window.URL || window.webkitURL;
+const NodeMediaServer = require('node-media-server');
+const nms = new NodeMediaServer({
+    rtmp: {
+        port: 1935,
+        chunk_size: 1,
+        gop_cache: false,
+        ping: 30,
+        ping_timeout: 60
+    },
+    http: {
+        port: 8000,
+        allow_origin: location.origin
+    }
+});
+let ratio = Infinity;
 
 /**
  * @param {Error} error 
@@ -65,98 +77,6 @@ const server = http.createServer(async (req, res) => {
 
 async function main() {
     try {
-        console.log("Acquiring webcam");
-        /**
-         * @type {HTMLImageElement}
-         */
-        const webcam = document.getElementById('webcam');
-        let lastFrame = null;
-        let ratio = 1.0;
-        let loadFlag = false;
-        const updateFrame = function () {
-            webcam.src = urlCreator.createObjectURL(lastFrame);
-            lastFrame = null;
-        }
-
-        /**
-         * @param {WebSocket} ws 
-         */
-        async function killSocket(ws) {
-            console.log("Closing current socket");
-            ws.removeEventListener('message', ws.onmessage);
-            ws.removeEventListener('error', ws.onerror);
-            ws.close();
-            loadFlag = false;
-            setTimeout(createWebsocket, 200);
-        }
-
-        /**
-         * @type {HTMLButtonElement}
-         */
-        const change = document.querySelector('#change');
-
-        webcam.onload = function () {
-            urlCreator.revokeObjectURL(webcam.src);
-            loadFlag = true;
-        };
-        /**
-         * @type {HTMLInputElement}
-         */
-        const source = document.querySelector('#source');
-        source.value = "10.1.121.96:8080";
-        /**
-         * @type {NodeJS.Timeout}
-         */
-        var timer = null;
-        let failCount = 0 | 0;
-        function createWebsocket() {
-            console.log("Opening WebSocket to " + source.value);
-            try {
-                const ws = new WebSocket('ws://' + source.value + '/ws');
-                /**
-                 * @type {NodeJS.Timeout}
-                 */
-                timer = null;
-                ws.onerror = function (e) {
-                    console.error(ev);
-                    clearTimeout(timer);
-                    killSocket(ws);
-                }
-                ws.onmessage = function (e) {
-                    if (timer) {
-                        clearTimeout(timer);
-                    }
-                    if (!lastFrame) {
-                        requestAnimationFrame(updateFrame);
-                    }
-                    lastFrame = e.data;
-                    timer = setTimeout(() => {
-                        console.log("No data in 1000ms. Resetting socket.");
-                        killSocket(ws);
-                    }, 1000);
-                }
-                if (change.onclick) {
-                    change.removeEventListener("click", change.onclick);
-                }
-                change.onclick = () => {
-                    console.log("Changing server address");
-                    clearTimeout(timer);
-                    killSocket(ws);
-                }
-                console.log("WebSocket opened");
-                failCount = 0 | 0;
-            } catch (e) {
-                failCount++;
-                if (failCount <= 100) {
-                    console.error(e);
-                    setTimeout(createWebsocket, 100);
-                } else {
-                    onError(e);
-                }
-            }
-        }
-        createWebsocket();
-
         console.log("Creating output renderer");
         /**
          * @type {HTMLCanvasElement}
@@ -179,12 +99,72 @@ async function main() {
         server.close();
         server.removeAllListeners();
 
+        console.log("Starting media relay");
+        /**
+         * @type {HTMLVideoElement}
+         */
+        const webcam = document.querySelector('#webcam');
+        nms.run();
+
+        var videoPlay = false;
+        nms.on('postPublish', () => { videoPlay = true; });
+        /**
+         * @param {Function} resolve 
+         */
+        const waitPublish = function (resolve) {
+            if (videoPlay) {
+                resolve();
+            }
+            else {
+                setTimeout(() => waitPublish(resolve), 50);
+            }
+        }
+        /**
+         * @returns {Promise<void>}
+         */
+        const WPwrapper = () => new Promise(
+            /**
+             * @param {Function} resolve 
+             */
+            (resolve) => {
+                waitPublish(resolve);
+            }
+        );
+        await WPwrapper();
+        function createPlayer() {
+            const flvPlayer = flvjs.createPlayer({
+                type: 'flv',
+                url: 'ws://localhost:8000/live/stream.flv'
+            });
+            flvPlayer.attachMediaElement(webcam);
+            flvPlayer.load();
+            /**
+             * @type {Promise<void>}
+             */
+            const start = flvPlayer.play();
+            start.then(() => {
+                nms.on('donePublish', async function () {
+                    console.log("Lost video source. Attempting to reacquire.");
+                    flvPlayer.pause();
+                    flvPlayer.unload();
+                    flvPlayer.detachMediaElement(webcam);
+                    flvPlayer.destroy();
+                    videoPlay = false;
+                    await WPwrapper();
+                    setTimeout(createPlayer, 100);
+                });
+            });
+            start.catch(onError);
+        }
+        createPlayer();
+
         console.log("Waiting for video start");
         /**
          * @param {Function} resolve 
          */
         const checkReady = function (resolve) {
-            if (!loadFlag) {
+            ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
+            if (ratio === Infinity) {
                 setTimeout(() => checkReady(resolve), 50);
             } else {
                 resolve();
@@ -198,9 +178,8 @@ async function main() {
                 checkReady(resolve);
             }
         );
-        ratio = Math.min(canvas.width / webcam.width, canvas.height / webcam.height);
         console.log("Running model");
-        const vid_params = [(canvas.height - (webcam.height * ratio)) / 2, webcam.width * ratio, webcam.height * ratio];
+        const vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio];
         const cvs_params = [canvas.width, canvas.height];
 
         const expandTensor = (tf.getBackend() == 'webgpu') ?
@@ -221,7 +200,7 @@ async function main() {
             source => tf.expandDims(source, 0);
 
         const doInference = async function () {
-            ctx1.drawImage(webcam, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
+            ctx1.drawImage(webcam, 0, 0, webcam.videoWidth, webcam.videoHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
             const img = tf.browser.fromPixels(osc);
             const input = expandTensor(img);
 
