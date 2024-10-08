@@ -9,8 +9,8 @@ const path = require('path');
 //const { TFLiteModel } = require('@tensorflow/tfjs-tflite/dist/tflite_model');
 const { chunkArray, Reformatter, loadLabels } = require('./shared');
 const fs = require('fs');
-// const labels = loadLabels("drone/drone-detect_labels.txt");
-const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
+const labels = loadLabels("drone/drone-detect_labels.txt");
+// const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
 // var vid_params = [0.0, 0.0, 0.0];
@@ -71,7 +71,6 @@ async function main() {
          */
         const webcam = document.getElementById('webcam');
         let lastFrame = null;
-        let ratio = 1.0;
         let loadFlag = false;
         const updateFrame = function () {
             webcam.src = urlCreator.createObjectURL(lastFrame);
@@ -173,8 +172,8 @@ async function main() {
         console.log("Loading model");
         tflite.setWasmPath('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/')
         tflite.setWasmPath('http://127.0.0.1:' + port.toString() + '/');
-        // const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("drone/drone-detect1.tflite")).buffer);
-        const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("alexandra/alexandrainst_drone_detect.tflite")).buffer);
+        const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("drone/drone-detect1.tflite")).buffer);
+        // const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("alexandra/alexandrainst_drone_detect.tflite")).buffer);
         console.log("Closing HTTP server")
         server.close();
         server.removeAllListeners();
@@ -198,7 +197,7 @@ async function main() {
                 checkReady(resolve);
             }
         );
-        ratio = Math.min(canvas.width / webcam.width, canvas.height / webcam.height);
+        const ratio = Math.min(canvas.width / webcam.width, canvas.height / webcam.height);
         console.log("Running model");
         const vid_params = [(canvas.height - (webcam.height * ratio)) / 2, webcam.width * ratio, webcam.height * ratio];
         const cvs_params = [canvas.width, canvas.height];
