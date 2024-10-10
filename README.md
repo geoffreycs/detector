@@ -2,7 +2,7 @@
 
 This project is a proof-of-concept to demonstrate that GPU acceleration of TensorFlow models on non-Nvidia systems is usable. The goal is to get this to work on a Raspberry Pi 5 so that accelerated models can be ran without an external accelerator model. I am using MobileNet because we happened to have it lying around.
 
-### Requirements
+### Requirements:
 This branch requires a stream being broadcast over the network by [`ffmpeg-ws-relay`](https://github.com/geoffreycs/ffmpeg-ws-relay-modernized). The default IP address is set to something you probably will not want to use, so you can either edit `window.js` on line 107 or just punch in a new value every time you run the program.
 
 #### Installation:  
