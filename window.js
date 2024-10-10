@@ -1,13 +1,8 @@
-const interval = Math.round(1000 / 25);
-
-const { ipcRenderer } = require('electron/renderer');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
-const http = require('http');
-const path = require('path');
 // const tflite = require('tfjs-tflite-node');
 //const { TFLiteModel } = require('@tensorflow/tfjs-tflite/dist/tflite_model');
-const { chunkArray, Reformatter, loadLabels } = require('./shared');
+const { chunkArray, Reformatter, loadLabels, server, port, onError } = require('./shared');
 const fs = require('fs');
 // const labels = loadLabels("drone/drone-detect_labels.txt");
 const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
@@ -16,52 +11,7 @@ const ctx1 = osc.getContext('2d');
 let ratio = Infinity;
 var vid_params = [0.0, 0.0, 0.0];
 
-/**
- * @param {Error} error 
- */
-const onError = function (error) {
-    console.error(error);
-    ipcRenderer.send('error');
-    //throw "Execution halted due to above error"
-}
-
 const reformat = Reformatter(300, 300);
-const MIME_TYPES = {
-    js: "text/javascript",
-    wasm: "application/wasm",
-    txt: "text/plain"
-};
-const assets = path.join(process.cwd(), "./node_modules/@tensorflow/tfjs-tflite/wasm");
-const toBool = [() => true, () => false];
-const port = Math.round(Math.random() * (10000 - 9000) + 9000);
-const server = http.createServer(async (req, res) => {
-    try {
-        if (req.socket.remoteAddress.includes("127.0.0.1")) {
-            const file = await prepareFile(req.url);
-            const statusCode = file.found ? 200 : 404;
-            const mimeType = MIME_TYPES[file.ext];
-            res.writeHead(statusCode, { "Content-Type": mimeType });
-            file.stream.pipe(res);
-            console.log(`${req.method} ${req.url} ${statusCode}`);
-        } else {
-            console.log("Ignored request from " + req.socket.remoteAddress);
-        }
-    }
-    catch (err) {
-        onError(err);
-    }
-});
-const prepareFile = async (url) => {
-    const paths = [assets, url];
-    const filePath = path.join(...paths);
-    const pathTraversal = !filePath.startsWith(assets);
-    const exists = await fs.promises.access(filePath).then(...toBool);
-    const found = !pathTraversal && exists;
-    const streamPath = found ? filePath : path.join(process.cwd(), "./404.txt");
-    const ext = path.extname(streamPath).substring(1).toLowerCase();
-    const stream = fs.createReadStream(streamPath);
-    return { found, ext, stream };
-};
 
 async function main() {
     try {
@@ -225,7 +175,7 @@ async function main() {
             } else {
                 desc.innerText = tag + ", " + String(dataOut[2][0]);
             }
-            setTimeout(doInference, interval);
+            setTimeout(doInference, 5);
         }
 
         const runner = doInference();
