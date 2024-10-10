@@ -8,23 +8,11 @@ const fs = require('fs');
 const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
-const NodeMediaServer = require('node-media-server');
-const nms = new NodeMediaServer({
-    rtmp: {
-        port: 1935,
-        chunk_size: 1,
-        gop_cache: false,
-        ping: 30,
-        ping_timeout: 60
-    },
-    http: {
-        port: 8000,
-        allow_origin: location.origin
-    }
-});
 
 let ratio = Infinity;
+let vid_params = [0.0, 0.0, 0.0, 0.0];
 const reformat = Reformatter(300, 300);
+const urlCreator = window.URL || window.webkitURL;
 
 async function main() {
     try {
@@ -35,7 +23,7 @@ async function main() {
         const canvas = document.getElementById('display');
         const ctx2 = canvas.getContext('2d');
         ctx2.font = "15px Arial";
-        ctx2.fillText("Waiting for webcam", 20, (canvas.height / 2) - 7);
+        ctx2.fillText("Waiting for input", 20, (canvas.height / 2) - 7);
         const desc = document.getElementById("class");
 
         console.log("Starting HTTP server to self-serve modules on port " + port.toString());
@@ -50,74 +38,70 @@ async function main() {
         server.close();
         server.removeAllListeners();
 
-        console.log("Starting media relay");
+        console.log("Waiting for video selection");
         /**
          * @type {HTMLVideoElement}
          */
         const webcam = document.querySelector('#webcam');
-        nms.run();
-
-        var videoPlay = false;
-        nms.on('postPublish', () => { videoPlay = true; });
+        /**
+         * @type {HTMLInputElement}
+         */
+        const source = document.querySelector('#source');
+        /**
+         * @param {FileList} FileList 
+         */
+        var firstPlay = false;
+        const handleFiles = function (FileList) {
+            ctx1.clearRect(0, 0, osc.width, osc.height);
+            if (firstPlay) {
+                console.log("Changing media source");
+                urlCreator.revokeObjectURL(webcam.src);
+                webcam.controls = false;
+                webcam.pause();
+            } else {
+                firstPlay = true;
+            }
+            if (FileList) {
+                const file = FileList.item(0);
+                webcam.src = urlCreator.createObjectURL(file);
+            } else {
+                const file = source.files[0];
+                webcam.src = urlCreator.createObjectURL(file);
+            }
+            webcam.load();
+            const play = webcam.play();
+            play.catch(onError);
+            play.then(() => {
+                webcam.controls = true;
+                ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
+                vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio, (canvas.width - (webcam.videoWidth * ratio)) / 2];
+            });
+        }
+        source.addEventListener("change", () => handleFiles(null), false);
+        /**
+         * @param {DragEvent} e 
+         */
+        function dragKill(e) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+        const body = document.getElementsByTagName("body")[0];
+        body.addEventListener("dragenter", dragKill, false);
+        body.addEventListener("dragover", dragKill, false);
+        body.addEventListener("drop", e => {
+            dragKill(e);
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files)
+        }, false);
         /**
          * @param {Function} resolve 
          */
-        const waitPublish = function (resolve) {
-            if (videoPlay) {
-                resolve();
+        const waitUpload = function (resolve) {
+            if (!firstPlay) {
+                setTimeout(() => waitUpload(resolve), 100);
             }
             else {
-                setTimeout(() => waitPublish(resolve), 50);
-            }
-        }
-        /**
-         * @returns {Promise<void>}
-         */
-        const WPwrapper = () => new Promise(
-            /**
-             * @param {Function} resolve 
-             */
-            (resolve) => {
-                waitPublish(resolve);
-            }
-        );
-        await WPwrapper();
-        function createPlayer() {
-            const flvPlayer = flvjs.createPlayer({
-                type: 'flv',
-                url: 'ws://localhost:8000/live/stream.flv'
-            });
-            flvPlayer.attachMediaElement(webcam);
-            flvPlayer.load();
-            /**
-             * @type {Promise<void>}
-             */
-            const start = flvPlayer.play();
-            start.then(() => {
-                nms.on('donePublish', async function () {
-                    console.log("Lost video source. Attempting to reacquire.");
-                    flvPlayer.pause();
-                    flvPlayer.unload();
-                    flvPlayer.detachMediaElement(webcam);
-                    flvPlayer.destroy();
-                    videoPlay = false;
-                    await WPwrapper();
-                    setTimeout(createPlayer, 100);
-                });
-            });
-            start.catch(onError);
-        }
-        createPlayer();
-
-        console.log("Waiting for video start");
-        /**
-         * @param {Function} resolve 
-         */
-        const checkReady = function (resolve) {
-            ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
-            if (ratio === Infinity) {
-                setTimeout(() => checkReady(resolve), 50);
-            } else {
                 resolve();
             }
         }
@@ -126,11 +110,11 @@ async function main() {
              * @param {Function} resolve 
              */
             (resolve) => {
-                checkReady(resolve);
+                waitUpload(resolve);
             }
         );
         console.log("Running model");
-        const vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio];
+        
         const cvs_params = [canvas.width, canvas.height];
 
         const expandTensor = (tf.getBackend() == 'webgpu') ?
@@ -151,7 +135,7 @@ async function main() {
             source => tf.expandDims(source, 0);
 
         const doInference = async function () {
-            ctx1.drawImage(webcam, 0, 0, webcam.videoWidth, webcam.videoHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
+            ctx1.drawImage(webcam, 0, 0, webcam.videoWidth, webcam.videoHeight, vid_params[3], vid_params[0], vid_params[1], vid_params[2]);
             const img = tf.browser.fromPixels(osc);
             const input = expandTensor(img);
 

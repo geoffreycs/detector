@@ -19,14 +19,19 @@
 </head>
 
 <body>
-    <video width="300" height="300" id="webcam" preload="auto">
-        Please wait...
-    </video>
-    <canvas width="300" height="300" id="display">
-        Please wait...
-    </canvas>
-    <br />
-    <div id="class">Loading...</div>
+    <form>
+        <label for="source">File:</label>
+        <input type="file" id="source" accept="video/*"/> 
+    </form>
+    <div style="padding-top: 5px;">
+        <video width="300" height="300" id="webcam" muted preload="metadata">
+            Please wait...
+        </video>
+        <canvas width="300" height="300" id="display">
+            Please wait...
+        </canvas>
+        <div id="class" style="padding-top: 5px;">Loading...</div>
+    </div>
     <script type="text/javascript">
         require('@tensorflow/tfjs-backend-webgpu');
         tf.setBackend('webgpu').then(() => main());
