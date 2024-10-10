@@ -9,10 +9,9 @@ const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
 
-let ratio = Infinity;
+let ratio = 0.0;
 let vid_params = [0.0, 0.0, 0.0, 0.0];
 const reformat = Reformatter(300, 300);
-const urlCreator = window.URL || window.webkitURL;
 
 async function main() {
     try {
@@ -39,6 +38,7 @@ async function main() {
         server.removeAllListeners();
 
         console.log("Waiting for video selection");
+        var firstPlay = false;
         /**
          * @type {HTMLVideoElement}
          */
@@ -50,32 +50,30 @@ async function main() {
         /**
          * @param {FileList} FileList 
          */
-        var firstPlay = false;
         const handleFiles = function (FileList) {
-            ctx1.clearRect(0, 0, osc.width, osc.height);
-            if (firstPlay) {
-                console.log("Changing media source");
-                urlCreator.revokeObjectURL(webcam.src);
-                webcam.controls = false;
-                webcam.pause();
+            const newFile = FileList ? FileList.item(0) : source.files[0];
+            if (newFile.type.includes("video/")) {
+                ctx1.clearRect(0, 0, osc.width, osc.height);
+                if (firstPlay) {
+                    console.log("Changing media source");
+                    window.URL.revokeObjectURL(webcam.src);
+                    webcam.controls = false;
+                    webcam.pause();
+                } else {
+                    firstPlay = true;
+                }
+                webcam.src = window.webkitURL.createObjectURL(newFile);
+                webcam.load();
+                const play = webcam.play();
+                play.catch(onError);
+                play.then(function () {
+                    webcam.controls = true;
+                    ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
+                    vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio, (canvas.width - (webcam.videoWidth * ratio)) / 2];
+                });
             } else {
-                firstPlay = true;
+                console.log("Ignoring dropped file of type", newFile.type);
             }
-            if (FileList) {
-                const file = FileList.item(0);
-                webcam.src = urlCreator.createObjectURL(file);
-            } else {
-                const file = source.files[0];
-                webcam.src = urlCreator.createObjectURL(file);
-            }
-            webcam.load();
-            const play = webcam.play();
-            play.catch(onError);
-            play.then(() => {
-                webcam.controls = true;
-                ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
-                vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio, (canvas.width - (webcam.videoWidth * ratio)) / 2];
-            });
         }
         source.addEventListener("change", () => handleFiles(null), false);
         /**
@@ -114,7 +112,7 @@ async function main() {
             }
         );
         console.log("Running model");
-        
+
         const cvs_params = [canvas.width, canvas.height];
 
         const expandTensor = (tf.getBackend() == 'webgpu') ?
