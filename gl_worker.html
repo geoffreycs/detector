@@ -3,7 +3,7 @@
 
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta charset="utf-8">
+    <meta charset="utf-8">    
     <script src="window.js"></script>
     <title>TensorFlow on WebGL</title>
     <style>
@@ -18,10 +18,11 @@
 </head>
 
 <body>
-    <form>
+    <form id="ctrl" action="">
         <label for="source">Source IP:port - </label>
         <input type="text" id="source"/> 
         <button type="button" id="change">Set</button>
+        <input type="submit" id="submit" hidden/>
     </form>
     <div height="300" width="300" style="display: flex; align-items: center; gap: 6px;">
         <img id="webcam" width="300"/>
