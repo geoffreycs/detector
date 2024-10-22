@@ -2,7 +2,6 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { ipcRenderer } = require('electron/renderer');
-const { blob } = require('stream/consumers');
 
 /**
  * @param {String} name 
@@ -49,34 +48,26 @@ function ArrayChunk() {
 exports.chunkArray = ArrayChunk();
 
 /**
- * @callback stdFround
+ * @callback setOut
+ * @param {Number} w
  * @param {Number} x
- * @returns {Number}
+ * @param {Number} y
+ * @param {Number} z
  */
 
-/**
- * @callback getDim
- * @returns {Number}
- */
-
-/**
- * @param {Number} dw 
- * @param {Number} dh 
- */
-exports.Reformatter = (dw, dh) => {
-    const W = dw | 0;
-    const H = dh | 0;
+exports.Reformatter = () => {
     /**
-     * @param {{Math: {fround: stdFround}, Float32Array: Float32ArrayConstructor}} stdlib 
-     * @param {{getH: getDim, getW: getDim}} foreign
-     * @param {ArrayBuffer} heap
+     * @param {null} stdlib
+     * @param {{setOut: setOut}} foreign
+     * @param {null} heap
      */
     const asmBuilder = function (stdlib, foreign, heap) {
         "use asm";
-        const fround = stdlib.Math.fround;
-        const getH = foreign.getH;
-        const getW = foreign.getW;
-        const work = new stdlib.Float32Array(heap);
+        const setOut = foreign.setOut;
+        var o1 = 0.0;
+        var o2 = 0.0;
+        var o3 = 0.0;
+        var o4 = 0.0;
         /**
          * @param {Number} a 
          * @param {Number} b
@@ -84,56 +75,40 @@ exports.Reformatter = (dw, dh) => {
          * @param {Number} d
          */
         function reformat(a, b, c, d) {
-            a = fround(a);
-            b = fround(b);
-            c = fround(c);
-            d = fround(d);
+            a = +a;
+            b = +b;
+            c = +c;
+            d = +d;
 
-            var wI = 0;
-            var hI = 0;
-            var wF = fround(0);
-            var hF = fround(0);
-            wI = getW() | 0;
-            hI = getH() | 0;
-            wF = fround(wI | 0);
-            hF = fround(hI | 0);
+            o1 = 300.0 * b;
+            o2 = 300.0 * a;
+            o3 = 300.0 * (d - b);
+            o4 = 300.0 * (c - a);
 
-            work[0] = fround(wF * b);
-            work[1] = fround(hF * a);
-            work[2] = fround(wF * fround(d - b));
-            work[3] = fround(hF * fround(c - a));
+            setOut(o1, o2, o3, o4);
 
-            /**
-             * Technically causes this to become invalid asm.js but since
-             * Chromium doesn't AOT compile asm.js and still runs it with
-             * interpretor/JIT, this will instead cause it just fall back
-             * to normal JS *after* it has already run the calculations,
-             * so we still keep the speed. This hack does not work on
-             * Firefox.
-             */
-            return work;
         }
         return {
             reformat: reformat
         }
     }
 
-    const module = asmBuilder({ Math: { fround: Math.fround }, Float32Array },
-        { getH: () => { return H | 0; }, getW: () => { return W | 0; } },
-        new ArrayBuffer(16));
+    const out = new Float64Array(new ArrayBuffer(32));
+    const setOut = function (w, x, y, z) {
+        out[0] = w;
+        out[1] = x;
+        out[2] = y;
+        out[3] = z;
+    }
+    const module = asmBuilder(null, { setOut }, null);
 
     /**
      * @param {Float32Array} box_raw
-     * @returns {{x: Number, y: Number, w: Number, h: Number}}
+     * @returns {Float64Array<ArrayBuffer>}
      */
-    return (box_raw) => {
-        const out = module.reformat(...box_raw);
-        return {
-            x: out[0],
-            y: out[1],
-            w: out[2],
-            h: out[3]
-        }
+    return box_raw => {
+        module.reformat(...box_raw);
+        return out;
     }
 }
 
@@ -214,7 +189,7 @@ const BASE_FRAGMENT_SHADER = `
  */
 exports.getGL = function (canvas) {
     /**
-     * @type {WebGLRenderingContext}
+     * @type {WebGL2RenderingContext}
      */
     const gl = canvas.getContext("webgl2");
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);

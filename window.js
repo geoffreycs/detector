@@ -1,16 +1,14 @@
 const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
-// const tflite = require('tfjs-tflite-node');
 //const { TFLiteModel } = require('@tensorflow/tfjs-tflite/dist/tflite_model');
 const { chunkArray, Reformatter, loadLabels, server, port, getGL, onError } = require('./shared');
 const labels = loadLabels("drone/drone-detect_labels.txt");
 // const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
-// var vid_params = [0.0, 0.0, 0.0];
 
-const reformat = Reformatter(300, 300);
+const reformat = Reformatter();
 
 async function main() {
     try {
@@ -223,7 +221,7 @@ async function main() {
                 ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
                 ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
-                ctx2.rect(converted.x, converted.y, converted.w, converted.h);
+                ctx2.rect(converted[0], converted[1], converted[2], converted[3]);
                 ctx2.stroke();
 
                 const tag = labels[dataOut[1][0]];
@@ -233,8 +231,10 @@ async function main() {
                 const msec = performance.now() - start;
                 rolling[idx] = msec;
                 idx = (idx + 1) % 10;
-                const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] + rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
-                perf.innerText = String(msec.toFixed(2)).padStart(6, '0') + "ms, " + (total / 10).toFixed(2).toString().padStart(6, '0') + "ms"
+                const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
+                    rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
+                perf.innerText = String(msec.toFixed(2)).padStart(6, '0') + "ms, " +
+                    (total / 10).toFixed(2).toString().padStart(6, '0') + "ms";
             }
             setTimeout(doInference, 5);
         }
