@@ -4,11 +4,11 @@
   "main": "webgl.js",
   "scripts": {
     "webgpu": "run-script-os",
-    "webgl": "electron --wasm-async-compilation --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization webgl.js",
-    "wasm": "electron --wasm-async-compilation --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization wasm.js",
+    "webgl": "electron --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization webgl.js",
+    "wasm": "electron --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization wasm.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "webgpu:win32:darwin": "electron --enable-unsafe-webgpu --wasm-async-compilation --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization webgpu.js",
-    "webgpu:linux:": "electron --enable-features=Vulkan --enable-unsafe-webgpu --wasm-async-compilation --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization webgpu.js"
+    "webgpu:win32:darwin": "electron --enable-unsafe-webgpu --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization webgpu.js",
+    "webgpu:linux:": "electron --enable-features=Vulkan --enable-unsafe-webgpu --enable-zero-copy --ignore-gpu-blocklist --zero-copy-video-capture --enable-gpu-rasterization webgpu.js"
   },
   "author": "Geoffrey Stentiford",
   "license": "ISC",

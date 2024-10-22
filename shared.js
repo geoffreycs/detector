@@ -2,6 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { ipcRenderer } = require('electron/renderer');
+const { blob } = require('stream/consumers');
 
 /**
  * @param {String} name 
@@ -11,7 +12,7 @@ exports.loadLabels = function (name) {
     /**
      * @type {String[]}
      */
-    let labels = [];
+    var labels = [];
     const lines = fs.readFileSync(name).toString().split(/\r?\n/);
     if (lines[1] == '') {
         labels = [lines[0].split("  ")[1]]
@@ -35,9 +36,9 @@ function ArrayChunk() {
      * @returns {Float32Array[]}
      */
     function chunkArray(arrayIn) {
-        var index = 0;
+        let index = 0 | 0;
         const arrayLength = arrayIn.length;
-        let tempArray = [];
+        const tempArray = [];
         for (index = 0; index < arrayLength; index += 4) {
             tempArray.push(arrayIn.slice(index, index + 4));
         }
@@ -48,20 +49,90 @@ function ArrayChunk() {
 exports.chunkArray = ArrayChunk();
 
 /**
+ * @callback stdFround
+ * @param {Number} x
+ * @returns {Number}
+ */
+
+/**
+ * @callback getDim
+ * @returns {Number}
+ */
+
+/**
  * @param {Number} dw 
  * @param {Number} dh 
  */
 exports.Reformatter = (dw, dh) => {
+    const W = dw | 0;
+    const H = dh | 0;
+    /**
+     * @param {{Math: {fround: stdFround}, Float32Array: Float32ArrayConstructor}} stdlib 
+     * @param {{getH: getDim, getW: getDim}} foreign
+     * @param {ArrayBuffer} heap
+     */
+    const asmBuilder = function (stdlib, foreign, heap) {
+        "use asm";
+        const fround = stdlib.Math.fround;
+        const getH = foreign.getH;
+        const getW = foreign.getW;
+        const work = new stdlib.Float32Array(heap);
+        /**
+         * @param {Number} a 
+         * @param {Number} b
+         * @param {Number} c
+         * @param {Number} d
+         */
+        function reformat(a, b, c, d) {
+            a = fround(a);
+            b = fround(b);
+            c = fround(c);
+            d = fround(d);
+
+            var wI = 0;
+            var hI = 0;
+            var wF = fround(0);
+            var hF = fround(0);
+            wI = getW() | 0;
+            hI = getH() | 0;
+            wF = fround(wI | 0);
+            hF = fround(hI | 0);
+
+            work[0] = fround(wF * b);
+            work[1] = fround(hF * a);
+            work[2] = fround(wF * fround(d - b));
+            work[3] = fround(hF * fround(c - a));
+
+            /**
+             * Technically causes this to become invalid asm.js but since
+             * Chromium doesn't AOT compile asm.js and still runs it with
+             * interpretor/JIT, this will instead cause it just fall back
+             * to normal JS *after* it has already run the calculations,
+             * so we still keep the speed. This hack does not work on
+             * Firefox.
+             */
+            return work;
+        }
+        return {
+            reformat: reformat
+        }
+    }
+
+    const module = asmBuilder({ Math: { fround: Math.fround }, Float32Array },
+        { getH: () => { return H | 0; }, getW: () => { return W | 0; } },
+        new ArrayBuffer(16));
+
     /**
      * @param {Float32Array} box_raw
      * @returns {{x: Number, y: Number, w: Number, h: Number}}
      */
     return (box_raw) => {
+        const out = module.reformat(...box_raw);
         return {
-            x: dw * box_raw[1],
-            y: dh * box_raw[0],
-            w: dw * (box_raw[3] - box_raw[1]),
-            h: dh * (box_raw[2] - box_raw[0])
+            x: out[0],
+            y: out[1],
+            w: out[2],
+            h: out[3]
         }
     }
 }
@@ -139,20 +210,13 @@ const BASE_FRAGMENT_SHADER = `
 `;
 
 /**
- * @callback copyImage
- * @param {ImageData} image
- * @returns {void}
- */
-
-/**
  * @param {OffscreenCanvas | HTMLCanvasElement} canvas
- * @returns {{gl: WebGLRenderingContext, copyImage: copyImage}}
  */
 exports.getGL = function (canvas) {
     /**
      * @type {WebGLRenderingContext}
      */
-    const gl = canvas.getContext("webgl");
+    const gl = canvas.getContext("webgl2");
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     // Create our vertex shader
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
@@ -182,9 +246,12 @@ exports.getGL = function (canvas) {
     const texture = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
     /**
-     * @param {ImageData} image 
+     * @param {HTMLImageElement | ImageBitmap | ImageData | HTMLCanvasElement | HTMLVideoElement} image 
+     * @returns {void}
      */
     const module = image => {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
@@ -192,14 +259,8 @@ exports.getGL = function (canvas) {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        // // Draw our 6 VERTICES as 2 triangles
-        // gl.clearColor(1.0, 1.0, 1.0, 1.0);
-        // gl.clear(gl.COLOR_BUFFER_BIT);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
-    return {
-        gl: gl,
-        copyImage: module
-    }
+    return module;
 }

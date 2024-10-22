@@ -66,24 +66,17 @@ async function main() {
             document.getElementById("submit").click();
         }
 
-        /**
-         * @type {ImageBitmap}
-         */
-        let imgData = null;
         const cnvGL = document.createElement('canvas');
         cnvGL.hidden = true;
         webcam.onload = function () {
             console.log("Initial frame loaded");
             cnvGL.height = webcam.naturalHeight;
             cnvGL.width = webcam.naturalWidth;
-            const ctxGL = getGL(cnvGL);
+            const drawGL = getGL(cnvGL);
             const newHandler = () => {
-                ctxGL.copyImage(webcam);
-                createImageBitmap(cnvGL).then(out => {
-                    imgData = out;
-                    lock = false;
-                    lastFrame = null;
-                });
+                drawGL(webcam);
+                lastFrame = null;
+                lock = false;
             }
             newHandler();
             webcam.onload = newHandler;
@@ -188,28 +181,19 @@ async function main() {
         const vid_params = [(canvas.height - (webcam.height * ratio)) / 2, webcam.width * ratio, webcam.height * ratio];
         const cvs_params = [canvas.width, canvas.height];
 
-        const expandTensor = (tf.getBackend() == 'webgpu') ?
-            /**
-             * @param {tf.Tensor3D} source 
-             * @returns {tf.Tensor}
-             */
-            source => {
-                const inGPU = source.dataToGPU();
-                const expanded = tf.expandDims(inGPU.tensorRef, 0);
-                inGPU.tensorRef.dispose();
-                return expanded;
-            } :
-            /**
-             * @param {tf.Tensor3D} source 
-             * @returns {tf.Tensor}
-             */
-            source => tf.expandDims(source, 0);
-
+        /**
+         * @type {HTMLParagraphElement}
+         */
+        const perf = document.querySelector("#perf");
+        const rolling = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        var idx = 0 | 0;
         const doInference = async function () {
             if (!lock) {
+                const start = performance.now();
                 ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
-                const img = tf.browser.fromPixels(osc);
-                const input = expandTensor(img);
+                const bitmap = await createImageBitmap(osc)
+                const img = tf.browser.fromPixels(bitmap);
+                const input = tf.expandDims(img, 0);
 
                 /**
                  * @type {{TFLite_Detection_PostProcess: tf.Tensor,
@@ -221,10 +205,11 @@ async function main() {
                 /**
                  * @type {Float32Array[]}
                  */
-                const dataOut = [chunkArray(await output.TFLite_Detection_PostProcess.data()),
-                output['TFLite_Detection_PostProcess:1'].dataSync(),
-                await output['TFLite_Detection_PostProcess:2'].data(),
-                output['TFLite_Detection_PostProcess:3'].dataSync()
+                const dataOut = [
+                    chunkArray(output.TFLite_Detection_PostProcess.dataSync()),
+                    await output['TFLite_Detection_PostProcess:1'].data(),
+                    await output['TFLite_Detection_PostProcess:2'].data(),
+                    await output['TFLite_Detection_PostProcess:3'].data()
                 ];
 
                 img.dispose();
@@ -236,17 +221,20 @@ async function main() {
 
                 const converted = reformat(dataOut[0][0]);
                 ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
-                ctx2.drawImage(imgData, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
+                ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
                 ctx2.rect(converted.x, converted.y, converted.w, converted.h);
                 ctx2.stroke();
 
                 const tag = labels[dataOut[1][0]];
-                if (tag == undefined) {
-                    desc.innerText = "id " + dataOut[1][0].toString() + ", " + String(dataOut[2][0]);
-                } else {
-                    desc.innerText = tag + ", " + String(dataOut[2][0]);
-                }
+                desc.innerText = tag ? (tag + ", " + String(dataOut[2][0].toFixed(7))) :
+                    ("id " + dataOut[1][0].toString() + ", " + String(dataOut[2][0]));
+
+                const msec = performance.now() - start;
+                rolling[idx] = msec;
+                idx = (idx + 1) % 10;
+                const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] + rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
+                perf.innerText = String(msec.toFixed(2)).padStart(6, '0') + "ms, " + (total / 10).toFixed(2).toString().padStart(6, '0') + "ms"
             }
             setTimeout(doInference, 5);
         }

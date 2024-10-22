@@ -3,7 +3,7 @@
 
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta charset="utf-8">    
+    <meta charset="utf-8">
     <script src="window.js"></script>
     <title>TensorFlow on WebGL</title>
     <style>
@@ -32,6 +32,7 @@
     </div>
     <br />
     <div id="class">Loading...</div>
+    <p id="perf"></p>
     <script type="text/javascript">
         require('@tensorflow/tfjs-backend-webgl');
         tf.setBackend('webgl').then(() => main());

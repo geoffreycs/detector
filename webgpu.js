@@ -4,7 +4,7 @@ app.disableDomainBlockingFor3DAPIs();
 app.whenReady().then(() => {
     const win = new BrowserWindow({
         width: 700,
-        height: 450,
+        height: 470,
         webPreferences: {
             sandbox: false,
             nodeIntegration: true,
