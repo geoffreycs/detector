@@ -35,10 +35,9 @@ function ArrayChunk() {
      * @returns {Float32Array[]}
      */
     function chunkArray(arrayIn) {
-        let index = 0 | 0;
         const arrayLength = arrayIn.length;
         const tempArray = [];
-        for (index = 0; index < arrayLength; index += 4) {
+        for (let index = 0 | 0; index < arrayLength; index += 4) {
             tempArray.push(arrayIn.slice(index, index + 4));
         }
         return tempArray;
@@ -49,68 +48,94 @@ exports.chunkArray = ArrayChunk();
 
 /**
  * @callback setOut
- * @param {Number} w
  * @param {Number} x
  * @param {Number} y
- * @param {Number} z
+ * @param {Number} w
+ * @param {Number} h
+ * @param {Number} m1
+ * @param {Number} m2
+ * @param {Number} lastX
+ * @param {Number} lastY
+ * @returns {void}
  */
 
-exports.Reformatter = () => {
+/**
+ * @callback stdMath
+ * @param {Number} x
+ * @return {Number}
+ */
+
+exports.reformat = (() => {
     /**
-     * @param {null} stdlib
+     * @param {{Math: {abs: stdMath}}} stdlib
      * @param {{setOut: setOut}} foreign
      * @param {null} heap
      */
     const asmBuilder = function (stdlib, foreign, heap) {
         "use asm";
         const setOut = foreign.setOut;
-        var o1 = 0.0;
-        var o2 = 0.0;
-        var o3 = 0.0;
-        var o4 = 0.0;
+        const abs = stdlib.Math.abs;
+        var mX = 0.0;
+        var mY = 0.0;
+
         /**
          * @param {Number} a 
          * @param {Number} b
          * @param {Number} c
          * @param {Number} d
          */
-        function reformat(a, b, c, d) {
+        function reformat(a, b, c, d, lastX, lastY) {
             a = +a;
             b = +b;
             c = +c;
             d = +d;
+            lastX = +lastX;
+            lastY = +lastY;
 
-            o1 = 300.0 * b;
-            o2 = 300.0 * a;
-            o3 = 300.0 * (d - b);
-            o4 = 300.0 * (c - a);
+            mX = a + (c / 2.0);
+            mY = b + (d / 2.0);
 
-            setOut(o1, o2, o3, o4);
-
+            setOut(300.0 * b, 300.0 * a, 300.0 * (d - b), 300.0 * (c - a),
+                mX, mY, +abs(mX - lastX), +abs(mY - lastY));
         }
         return {
             reformat: reformat
         }
     }
 
-    const out = new Float64Array(new ArrayBuffer(32));
-    const setOut = function (w, x, y, z) {
-        out[0] = w;
-        out[1] = x;
-        out[2] = y;
-        out[3] = z;
+    const outFloats = new Float64Array(new ArrayBuffer(48));
+    let dx = 0 | 0;
+    let dy = 0 | 0;
+    /**
+     * @type {setOut}
+     */
+    const setOut = function (x, y, w, h, m1, m2, dX, dY) {
+        outFloats[0] = x;
+        outFloats[1] = y;
+        outFloats[2] = w;
+        outFloats[3] = h;
+        outFloats[4] = m1;
+        outFloats[5] = m2;
+        dx = dX;
+        dy = dY;
     }
-    const module = asmBuilder(null, { setOut }, null);
+    const module = asmBuilder({ Math: { abs: Math.abs } }, { setOut }, null);
 
     /**
      * @param {Float32Array} box_raw
-     * @returns {Float64Array<ArrayBuffer>}
+     * @param {lastX} lastX
+     * @param {lastY} lastY
+     * @returns {{converted: Float64Array<ArrayBuffer>, dX: Number, dY: Number}
      */
-    return box_raw => {
-        module.reformat(...box_raw);
-        return out;
+    return (box_raw, lastX, lastY) => {
+        module.reformat(...box_raw, lastX, lastY);
+        return {
+            converted: outFloats,
+            dX: dx,
+            dY: dy
+        };
     }
-}
+})();
 
 const MIME_TYPES = {
     js: "text/javascript",
@@ -238,4 +263,24 @@ exports.getGL = function (canvas) {
     }
 
     return module;
+}
+
+/**
+ * @param {Number[]} input 
+ * @returns {Number}
+ */
+exports.arrayAvg = input => {
+    return (input[0] + input[1] + input[2] + input[3] + input[4]) / 5.0;
+}
+
+/**
+ * @param {ArrayLike} array 
+ * @param {*} val 
+ */
+exports.setAll = (array, val) => {
+    array[0] = val;
+    array[1] = val;
+    array[2] = val;
+    array[3] = val;
+    array[4] = val;
 }

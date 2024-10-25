@@ -2,13 +2,18 @@ const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
 //const { TFLiteModel } = require('@tensorflow/tfjs-tflite/dist/tflite_model');
-const { chunkArray, Reformatter, loadLabels, server, port, getGL, onError } = require('./shared');
+const { chunkArray, reformat, loadLabels, server, port, getGL,
+    onError, arrayAvg, setAll } = require('./shared');
 const labels = loadLabels("drone/drone-detect_labels.txt");
 // const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
 
-const reformat = Reformatter();
+const rolling = new Float64Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+const x_accum = new Float64Array(5);
+const y_accum = new Float64Array(5);
+const w_accum = new Float64Array(5);
+const h_accum = new Float64Array(5);
 
 async function main() {
     try {
@@ -23,6 +28,7 @@ async function main() {
         const ctx2 = canvas.getContext("2d");
         ctx2.font = "15px Arial";
         ctx2.fillText("Waiting for webcam", 20, (canvas.height / 2) - 7);
+        ctx2.lineWidth = 2;
         const desc = document.getElementById("class");
 
         console.log("Acquiring webcam");
@@ -47,7 +53,7 @@ async function main() {
         /**
          * @param {WebSocket} ws 
          */
-        async function killSocket(ws) {
+        function killSocket(ws) {
             console.log("Closing current socket");
             ws.removeEventListener('message', ws.onmessage);
             ws.removeEventListener('error', ws.onerror);
@@ -89,15 +95,12 @@ async function main() {
         /**
          * @type {NodeJS.Timeout}
          */
-        var timer = null;
+        var timer;
         let failCount = 0 | 0;
         function createWebsocket() {
             console.log("Opening WebSocket to " + source.value);
             try {
                 const ws = new WebSocket('ws://' + source.value + '/ws');
-                /**
-                 * @type {NodeJS.Timeout}
-                 */
                 timer = null;
                 ws.onerror = function (e) {
                     console.error(ev);
@@ -123,7 +126,7 @@ async function main() {
                 if (ctrl.onsubmit) {
                     ctrl.removeEventListener("submit", ctrl.onsubmit);
                 }
-                ctrl.onsubmit = (e) => {
+                ctrl.onsubmit = e => {
                     e.preventDefault();
                     console.log("Changing server address");
                     clearTimeout(timer);
@@ -148,7 +151,7 @@ async function main() {
 
         console.log("Loading model");
         tflite.setWasmPath('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/')
-        tflite.setWasmPath('http://127.0.0.1:' + port.toString() + '/');
+        tflite.setWasmPath('http://127.0.0.1:' + new String(port) + '/');
         const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("drone/drone-detect1.tflite")).buffer);
         // const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("alexandra/alexandrainst_drone_detect.tflite")).buffer);
         console.log("Closing HTTP server")
@@ -183,8 +186,11 @@ async function main() {
          * @type {HTMLParagraphElement}
          */
         const perf = document.querySelector("#perf");
-        const rolling = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        var idx = 0 | 0;
+        var idx_t = 0 | 0;
+        var idx_d = 0 | 0;
+        let lostCount = 0 | 0;
+        let lastX = 0 | 0;
+        let lastY = 0 | 0;
         const doInference = async function () {
             if (!lock) {
                 const start = performance.now();
@@ -217,26 +223,51 @@ async function main() {
                 output['TFLite_Detection_PostProcess:2'].dispose();
                 output['TFLite_Detection_PostProcess:3'].dispose();
 
-                const converted = reformat(dataOut[0][0]);
+                if (dataOut[2][0] > 0.5000001) {
+                    const { converted, dx, dy } = reformat(dataOut[0][0], lastX, lastY);
+                    if (lostCount > 20 && dx > 15 && dy > 15) {
+                        setAll(x_accum, converted[0]);
+                        setAll(y_accum, converted[1]);
+                        setAll(w_accum, converted[2]);
+                        setAll(h_accum, converted[3]);
+                    } else {
+                        x_accum[idx_d] = converted[0];
+                        y_accum[idx_d] = converted[1];
+                        w_accum[idx_d] = converted[2];
+                        h_accum[idx_d] = converted[3];
+                        lastX = converted[4];
+                        lastY = converted[5];
+                    }
+                    lostCount = 0;
+                } else {
+                    const last = (((idx_d - 1) % 5) + 5) % 5;
+                    x_accum[idx_d] = x_accum[last];
+                    y_accum[idx_d] = y_accum[last];
+                    w_accum[idx_d] = w_accum[last];
+                    h_accum[idx_d] = h_accum[last];
+                    lostCount++;
+                }
+                idx_d = (idx_d + 1) % 5;
+
+                ctx2.strokeStyle = (lostCount < 10) ? 'blue' : 'red';
                 ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
                 ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
-                ctx2.rect(converted[0], converted[1], converted[2], converted[3]);
+                ctx2.rect(arrayAvg(x_accum), arrayAvg(y_accum), arrayAvg(w_accum), arrayAvg(h_accum));
                 ctx2.stroke();
 
                 const tag = labels[dataOut[1][0]];
-                desc.innerText = tag ? (tag + ", " + String(dataOut[2][0].toFixed(7))) :
-                    ("id " + dataOut[1][0].toString() + ", " + String(dataOut[2][0]));
+                desc.innerText = tag + ", " + dataOut[2][0].toFixed(7) + ", " + String(lostCount).padStart(3, '0');
 
                 const msec = performance.now() - start;
-                rolling[idx] = msec;
-                idx = (idx + 1) % 10;
+                rolling[idx_t] = msec;
+                idx_t = (idx_t + 1) % 10;
                 const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
                     rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
-                perf.innerText = String(msec.toFixed(2)).padStart(6, '0') + "ms, " +
-                    (total / 10).toFixed(2).toString().padStart(6, '0') + "ms";
+                perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
+                    (total / 10).toFixed(2).padStart(6, '0') + "ms";
             }
-            setTimeout(doInference, 5);
+            setTimeout(() => doInference().catch(onError), 5);
         }
 
         const runner = doInference();
