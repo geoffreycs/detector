@@ -103,9 +103,7 @@ exports.reformat = (() => {
         }
     }
 
-    const outFloats = new Float64Array(new ArrayBuffer(48));
-    let dx = 0 | 0;
-    let dy = 0 | 0;
+    const outFloats = new Float64Array(new ArrayBuffer(64));
     /**
      * @type {setOut}
      */
@@ -116,8 +114,8 @@ exports.reformat = (() => {
         outFloats[3] = h;
         outFloats[4] = m1;
         outFloats[5] = m2;
-        dx = dX;
-        dy = dY;
+        outFloats[6] = dX;
+        outFloats[7] = dY;
     }
     const module = asmBuilder({ Math: { abs: Math.abs } }, { setOut }, null);
 
@@ -129,11 +127,7 @@ exports.reformat = (() => {
      */
     return (box_raw, lastX, lastY) => {
         module.reformat(...box_raw, lastX, lastY);
-        return {
-            converted: outFloats,
-            dX: dx,
-            dY: dy
-        };
+        return outFloats;
     }
 })();
 

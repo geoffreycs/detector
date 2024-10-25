@@ -8,6 +8,18 @@ const labels = loadLabels("drone/drone-detect_labels.txt");
 // const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
+const worker = new Worker("ipc.js");
+let ipcUp = false;
+/**
+ * @param {MessageEvent} msg 
+ */
+worker.onmessage = msg => {
+    if (msg.data == "connected") {
+        ipcUp = true;
+    } else {
+        console.error(msg.data);
+    }
+}
 
 const rolling = new Float64Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 const x_accum = new Float64Array(5);
@@ -152,7 +164,7 @@ async function main() {
         console.log("Loading model");
         tflite.setWasmPath('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/')
         tflite.setWasmPath('http://127.0.0.1:' + new String(port) + '/');
-        const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("drone/drone-detect1.tflite")).buffer);
+        const model = await tflite.loadTFLiteModel(fs.readFileSync("drone/drone-detect1.tflite"));
         // const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("alexandra/alexandrainst_drone_detect.tflite")).buffer);
         console.log("Closing HTTP server")
         server.close();
@@ -178,7 +190,18 @@ async function main() {
             }
         );
         const ratio = Math.min(canvas.width / webcam.width, canvas.height / webcam.height);
+
         console.log("Running model");
+        /**
+         * @type {Number[]}
+         */
+        const timings = {
+            "webgl": [40, 20],
+            "webgpu": [30, 15],
+            "wasm": [20, 10]
+        }[tf.getBackend()];
+        const discardOldThres = timings[0];
+        const trackLostThres = timings[1];
         const vid_params = [(canvas.height - (webcam.height * ratio)) / 2, webcam.width * ratio, webcam.height * ratio];
         const cvs_params = [canvas.width, canvas.height];
 
@@ -189,8 +212,11 @@ async function main() {
         var idx_t = 0 | 0;
         var idx_d = 0 | 0;
         let lostCount = 0 | 0;
-        let lastX = 0 | 0;
-        let lastY = 0 | 0;
+        let trackExpired = true;
+        let trackStale = true;
+        let lastX = 0.0;
+        let lastY = 0.0;
+        const metadata = new Uint8Array(new SharedArrayBuffer(3));
         const doInference = async function () {
             if (!lock) {
                 const start = performance.now();
@@ -223,9 +249,13 @@ async function main() {
                 output['TFLite_Detection_PostProcess:2'].dispose();
                 output['TFLite_Detection_PostProcess:3'].dispose();
 
-                if (dataOut[2][0] > 0.5000001) {
-                    const { converted, dx, dy } = reformat(dataOut[0][0], lastX, lastY);
-                    if (lostCount > 20 && dx > 15 && dy > 15) {
+                trackExpired = (lostCount > discardOldThres) ? true : false;
+
+                const regainMax = 15 / 300;
+                if (dataOut[2][0] > .51) {
+                    // const converted = reformat(dataOut[0][0], trackPoint[0], trackPoint[1]);
+                    const converted = reformat(dataOut[0][0], lastX, lastY);
+                    if (trackExpired && converted[5] > regainMax && converted[6] > regainMax) {
                         setAll(x_accum, converted[0]);
                         setAll(y_accum, converted[1]);
                         setAll(w_accum, converted[2]);
@@ -235,6 +265,8 @@ async function main() {
                         y_accum[idx_d] = converted[1];
                         w_accum[idx_d] = converted[2];
                         h_accum[idx_d] = converted[3];
+                        // trackPoint[0] = converted[4];
+                        // trackPoint[1] = converted[5];
                         lastX = converted[4];
                         lastY = converted[5];
                     }
@@ -249,7 +281,14 @@ async function main() {
                 }
                 idx_d = (idx_d + 1) % 5;
 
-                ctx2.strokeStyle = (lostCount < 10) ? 'blue' : 'red';
+                if (lostCount < trackLostThres) {
+                    ctx2.strokeStyle = 'blue';
+                    trackStale = false;
+                } else {
+                    ctx2.strokeStyle = 'red';
+                    trackStale = true;
+                }
+
                 ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
                 ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
@@ -258,6 +297,13 @@ async function main() {
 
                 const tag = labels[dataOut[1][0]];
                 desc.innerText = tag + ", " + dataOut[2][0].toFixed(7) + ", " + String(lostCount).padStart(3, '0');
+
+                if (ipcUp) {
+                    metadata[0] = (lostCount != 0) ? 1 : 0;
+                    metadata[1] = trackStale ? 1 : 0;
+                    metadata[2] = trackExpired ? 1 : 0;
+                    worker.postMessage([[lastX, lastY, dataOut[2][0]], metadata]);
+                }
 
                 const msec = performance.now() - start;
                 rolling[idx_t] = msec;
