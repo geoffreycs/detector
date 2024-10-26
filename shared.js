@@ -92,8 +92,8 @@ exports.reformat = (() => {
             lastX = +lastX;
             lastY = +lastY;
 
-            mX = a + (c / 2.0);
-            mY = b + (d / 2.0);
+            mX = ((d + b) / 2.0) * 300.0;
+            mY = ((a + c) / 2.0) * 300.0;
 
             setOut(300.0 * b, 300.0 * a, 300.0 * (d - b), 300.0 * (c - a),
                 mX, mY, +abs(mX - lastX), +abs(mY - lastY));
@@ -123,7 +123,7 @@ exports.reformat = (() => {
      * @param {Float32Array} box_raw
      * @param {lastX} lastX
      * @param {lastY} lastY
-     * @returns {{converted: Float64Array<ArrayBuffer>, dX: Number, dY: Number}
+     * @returns {{converted: Float64Array<ArrayBuffer>, dX: Number, dY: Number}}
      */
     return (box_raw, lastX, lastY) => {
         module.reformat(...box_raw, lastX, lastY);

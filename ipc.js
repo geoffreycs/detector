@@ -1,28 +1,29 @@
 const net = require('net');
 
 /**
- * @param {Error} err 
  * @param {net.Socket} client 
  */
-const onError = function (err, client) {
+const onError = function (client) {
     client.destroy();
-    setTimeout(main, 100);
+    setTimeout(main, 1000);
 }
 
 function main() {
     const client = net.createConnection(1337, "127.0.0.1", () => {
         client.on('close', () => {
-            onError(null, client);
+            onError(client);
         });
-        onmessage = data => {
-            const out = JSON.stringify(data.data);
-            client.write(out);
+        /**
+         * @param {MessageEvent<Number[][]>} msg
+         */
+        onmessage = msg => {
+            client.write(JSON.stringify(msg.data));
         };
         postMessage("connected");
     });
     client.on('error', err => {
         postMessage(err);
-        onError(err, client);
+        onError(client);
     });
 }
 

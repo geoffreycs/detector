@@ -1,32 +1,37 @@
 import socket
+import json
+import sys, signal
 
-# Server IP and port
-HOST = '127.0.0.1'  # Localhost for local testing
-PORT = 1337        # Port to listen on
+def unix_handler(sig, frame):
+    sys.exit(0)
 
-# Create a TCP socket
+def win32_handler(a):
+    sys.exit(0)
+
+if sys.platform == "win32":
+    import win32api
+    win32api.SetConsoleCtrlHandler(win32_handler, True)
+else:
+    signal.signal(signal.SIGINT, unix_handler)
+
+HOST = '127.0.0.1'
+PORT = 1337
+
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-# Bind the socket to the address and port
 server.bind((HOST, PORT))
-
-# Listen for incoming connections
 server.listen(1)
 print(f"Listening on {HOST}:{PORT}")
 
 while True:
-    # Wait for a connection
-    connection, client_address = server.accept()
+    global connection
     try:
-        print('Client connected:', client_address)
-
-        # Receive the data
+        connection = server.accept()[0]
         while True:
             data = connection.recv(1024)
             if data:
-                print('Received:', data.decode())
+                msg = json.loads(data)
+                print(msg)
             else:
                 break
-    finally:
-        # Clean up the connection
+    except:
         connection.close()

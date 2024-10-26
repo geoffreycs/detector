@@ -1,3 +1,4 @@
+const { Buffer } = require('node:buffer');
 const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
@@ -21,11 +22,17 @@ worker.onmessage = msg => {
     }
 }
 
+/**
+ * @type {Buffer<SharedArrayBuffer>}
+ */
+const metadata = Buffer.from(new SharedArrayBuffer(3));
 const rolling = new Float64Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 const x_accum = new Float64Array(5);
 const y_accum = new Float64Array(5);
 const w_accum = new Float64Array(5);
 const h_accum = new Float64Array(5);
+const m1_accum = new Float64Array(5);
+const m2_accum = new Float64Array(5);
 
 async function main() {
     try {
@@ -216,7 +223,6 @@ async function main() {
         let trackStale = true;
         let lastX = 0.0;
         let lastY = 0.0;
-        const metadata = new Uint8Array(new SharedArrayBuffer(3));
         const doInference = async function () {
             if (!lock) {
                 const start = performance.now();
@@ -251,15 +257,16 @@ async function main() {
 
                 trackExpired = (lostCount > discardOldThres) ? true : false;
 
-                const regainMax = 15 / 300;
+                const regainMax = 20;
                 if (dataOut[2][0] > .51) {
-                    // const converted = reformat(dataOut[0][0], trackPoint[0], trackPoint[1]);
                     const converted = reformat(dataOut[0][0], lastX, lastY);
-                    if (trackExpired && converted[5] > regainMax && converted[6] > regainMax) {
+                    if (trackExpired && (converted[6] > regainMax || converted[7] > regainMax)) {
                         setAll(x_accum, converted[0]);
                         setAll(y_accum, converted[1]);
                         setAll(w_accum, converted[2]);
                         setAll(h_accum, converted[3]);
+                        setAll(m1_accum, converted[4]);
+                        setAll(m2_accum, converted[5]);
                     } else {
                         x_accum[idx_d] = converted[0];
                         y_accum[idx_d] = converted[1];
@@ -269,6 +276,8 @@ async function main() {
                         // trackPoint[1] = converted[5];
                         lastX = converted[4];
                         lastY = converted[5];
+                        m1_accum[idx_d] = lastX;
+                        m2_accum[idx_d] = lastY;
                     }
                     lostCount = 0;
                 } else {
@@ -277,6 +286,8 @@ async function main() {
                     y_accum[idx_d] = y_accum[last];
                     w_accum[idx_d] = w_accum[last];
                     h_accum[idx_d] = h_accum[last];
+                    m1_accum[idx_d] = m1_accum[last];
+                    m2_accum[idx_d] = m2_accum[last];
                     lostCount++;
                 }
                 idx_d = (idx_d + 1) % 5;
@@ -289,10 +300,11 @@ async function main() {
                     trackStale = true;
                 }
 
+                const smoothed = [arrayAvg(x_accum), arrayAvg(y_accum), arrayAvg(w_accum), arrayAvg(h_accum)];
                 ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
                 ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
-                ctx2.rect(arrayAvg(x_accum), arrayAvg(y_accum), arrayAvg(w_accum), arrayAvg(h_accum));
+                ctx2.rect(...smoothed);
                 ctx2.stroke();
 
                 const tag = labels[dataOut[1][0]];
@@ -302,7 +314,7 @@ async function main() {
                     metadata[0] = (lostCount != 0) ? 1 : 0;
                     metadata[1] = trackStale ? 1 : 0;
                     metadata[2] = trackExpired ? 1 : 0;
-                    worker.postMessage([[lastX, lastY, dataOut[2][0]], metadata]);
+                    worker.postMessage([[arrayAvg(m1_accum), arrayAvg(m2_accum), smoothed[2], smoothed[3], dataOut[2][0]], metadata]);
                 }
 
                 const msec = performance.now() - start;
