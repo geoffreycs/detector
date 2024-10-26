@@ -3,7 +3,7 @@ const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
 //const { TFLiteModel } = require('@tensorflow/tfjs-tflite/dist/tflite_model');
-const { chunkArray, reformat, loadLabels, server, port, getGL,
+const { reformat, loadLabels, server, port, getGL,
     onError, arrayAvg, setAll } = require('./shared');
 const labels = loadLabels("drone/drone-detect_labels.txt");
 // const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
@@ -203,14 +203,15 @@ async function main() {
          * @type {Number[]}
          */
         const timings = {
-            "webgl": [40, 20],
+            "webgl": [35, 17],
             "webgpu": [30, 15],
-            "wasm": [20, 10]
+            "wasm": [40, 20]
         }[tf.getBackend()];
-        const discardOldThres = timings[0];
-        const trackLostThres = timings[1];
-        const vid_params = [(canvas.height - (webcam.height * ratio)) / 2, webcam.width * ratio, webcam.height * ratio];
-        const cvs_params = [canvas.width, canvas.height];
+        const [discardOldThres, trackLostThres] = timings;
+        const dy = (canvas.height - (webcam.height * ratio)) / 2;
+        const dw = webcam.width * ratio;
+        const dh = webcam.height * ratio
+        const [cvs_w, cvs_h] = [canvas.width, canvas.height];
 
         /**
          * @type {HTMLParagraphElement}
@@ -218,6 +219,7 @@ async function main() {
         const perf = document.querySelector("#perf");
         var idx_t = 0 | 0;
         var idx_d = 0 | 0;
+        var last = 4 | 0;
         let lostCount = 0 | 0;
         let trackExpired = true;
         let trackStale = true;
@@ -226,7 +228,7 @@ async function main() {
         const doInference = async function () {
             if (!lock) {
                 const start = performance.now();
-                ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, vid_params[0], vid_params[1], vid_params[2]);
+                ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, dy, dw, dh);
                 const bitmap = await createImageBitmap(osc)
                 const img = tf.browser.fromPixels(bitmap);
                 const input = tf.expandDims(img, 0);
@@ -242,10 +244,9 @@ async function main() {
                  * @type {Float32Array[]}
                  */
                 const dataOut = [
-                    chunkArray(output.TFLite_Detection_PostProcess.dataSync()),
+                    await output.TFLite_Detection_PostProcess.data(),
                     await output['TFLite_Detection_PostProcess:1'].data(),
-                    await output['TFLite_Detection_PostProcess:2'].data(),
-                    await output['TFLite_Detection_PostProcess:3'].data()
+                    await output['TFLite_Detection_PostProcess:2'].data()
                 ];
 
                 img.dispose();
@@ -259,7 +260,7 @@ async function main() {
 
                 const regainMax = 20;
                 if (dataOut[2][0] > .51) {
-                    const converted = reformat(dataOut[0][0], lastX, lastY);
+                    const converted = reformat(new Float32Array(dataOut[0].buffer, dataOut[0].byteOffset, 16), lastX, lastY);
                     if (trackExpired && (converted[6] > regainMax || converted[7] > regainMax)) {
                         setAll(x_accum, converted[0]);
                         setAll(y_accum, converted[1]);
@@ -272,8 +273,6 @@ async function main() {
                         y_accum[idx_d] = converted[1];
                         w_accum[idx_d] = converted[2];
                         h_accum[idx_d] = converted[3];
-                        // trackPoint[0] = converted[4];
-                        // trackPoint[1] = converted[5];
                         lastX = converted[4];
                         lastY = converted[5];
                         m1_accum[idx_d] = lastX;
@@ -281,7 +280,6 @@ async function main() {
                     }
                     lostCount = 0;
                 } else {
-                    const last = (((idx_d - 1) % 5) + 5) % 5;
                     x_accum[idx_d] = x_accum[last];
                     y_accum[idx_d] = y_accum[last];
                     w_accum[idx_d] = w_accum[last];
@@ -290,6 +288,7 @@ async function main() {
                     m2_accum[idx_d] = m2_accum[last];
                     lostCount++;
                 }
+                last = idx_d;
                 idx_d = (idx_d + 1) % 5;
 
                 if (lostCount < trackLostThres) {
@@ -301,7 +300,7 @@ async function main() {
                 }
 
                 const smoothed = [arrayAvg(x_accum), arrayAvg(y_accum), arrayAvg(w_accum), arrayAvg(h_accum)];
-                ctx2.clearRect(0, 0, cvs_params[0], cvs_params[1]);
+                ctx2.clearRect(0, 0, cvs_w, cvs_h);
                 ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
                 ctx2.rect(...smoothed);
