@@ -4,66 +4,33 @@ const path = require('path');
 const { ipcRenderer } = require('electron/renderer');
 
 /**
- * @param {String} name 
- * @returns {String[]}
- */
-exports.loadLabels = function (name) {
-    /**
-     * @type {String[]}
-     */
-    var labels = [];
-    const lines = fs.readFileSync(name).toString().split(/\r?\n/);
-    if (lines[1] == '') {
-        labels = [lines[0].split("  ")[1]]
-    } else {
-        lines.forEach(
-            /**
-             * @param {String} element 
-             */
-            element => {
-                labels.push(element.split("  ")[1]);
-            });
-    }
-    return labels;
-}
-
-/**
- * @callback setOut
- * @param {Number} x
- * @param {Number} y
- * @param {Number} w
- * @param {Number} h
- * @param {Number} m1
- * @param {Number} m2
- * @param {Number} lastX
- * @param {Number} lastY
- * @returns {void}
- */
-
-/**
  * @callback stdMath
  * @param {Number} x
  * @return {Number}
  */
 
-exports.reformat = (() => {
+exports.asmExport = (() => {
     /**
-     * @param {{Math: {abs: stdMath}}} stdlib
-     * @param {{setOut: setOut}} foreign
-     * @param {null} heap
+     * @param {{Math: {abs: stdMath}, Float64Array: Float64ArrayConstructor}} stdlib
+     * @param {null} foreign
+     * @param {ArrayBuffer} heap
      */
     const asmBuilder = function (stdlib, foreign, heap) {
         "use asm";
-        const setOut = foreign.setOut;
         const abs = stdlib.Math.abs;
+        const work = new stdlib.Float64Array(heap);
         var mX = 0.0;
         var mY = 0.0;
+        var w = 0.0;
+        var h = 0.0;
 
         /**
          * @param {Number} a 
          * @param {Number} b
          * @param {Number} c
          * @param {Number} d
+         * @param {Number} lastX
+         * @param {Number} lastY
          */
         function reformat(a, b, c, d, lastX, lastY) {
             a = +a;
@@ -75,40 +42,104 @@ exports.reformat = (() => {
 
             mX = ((d + b) / 2.0) * 300.0;
             mY = ((a + c) / 2.0) * 300.0;
+            w = 300.0 * (d - b);
+            h = 300.0 * (c - a);
 
-            setOut(300.0 * b, 300.0 * a, 300.0 * (d - b), 300.0 * (c - a),
-                mX, mY, +abs(mX - lastX), +abs(mY - lastY));
+            work[0] = 300.0 * b;
+            work[1] = 300.0 * a;
+            work[2] = w;
+            work[3] = h;
+            work[4] = mX;
+            work[5] = mY;
+            work[6] = +abs(mX - lastX);
+            work[7] = +abs(mY - lastY);
+            work[8] = w * h;
+            work[9] = w / h;
         }
+
+        function dimsAvg() {
+            work[40] = (+work[10] + +work[11] + +work[12] + +work[13] + +work[14]) / 5.0;
+            work[41] = (+work[15] + +work[16] + +work[17] + +work[18] + +work[19]) / 5.0;
+            work[42] = (+work[20] + +work[21] + +work[22] + +work[23] + +work[24]) / 5.0;
+            work[43] = (+work[25] + +work[26] + +work[27] + +work[28] + +work[29]) / 5.0;
+        }
+
+        function midAvg() {
+            work[44] = (+work[30] + +work[31] + +work[32] + +work[33] + +work[34]) / 5.0;
+            work[45] = (+work[35] + +work[36] + +work[37] + +work[38] + +work[39]) / 5.0;
+        }
+
+        function setAll() {
+            work[10] = +work[0];
+            work[11] = +work[0];
+            work[12] = +work[0];
+            work[13] = +work[0];
+            work[14] = +work[0];
+
+            work[15] = +work[1];
+            work[16] = +work[1];
+            work[17] = +work[1];
+            work[18] = +work[1];
+            work[19] = +work[1];
+
+            work[20] = +work[2];
+            work[21] = +work[2];
+            work[22] = +work[2];
+            work[23] = +work[2];
+            work[24] = +work[2];
+
+            work[25] = +work[3];
+            work[26] = +work[3];
+            work[27] = +work[3];
+            work[28] = +work[3];
+            work[29] = +work[3];
+
+            work[30] = +work[4];
+            work[31] = +work[4];
+            work[32] = +work[4];
+            work[33] = +work[4];
+            work[34] = +work[4];
+
+            work[35] = +work[5];
+            work[36] = +work[5];
+            work[37] = +work[5];
+            work[38] = +work[5];
+            work[39] = +work[5];
+        }
+
         return {
-            reformat: reformat
+            reformat: reformat,
+            dimsAvg: dimsAvg,
+            midAvg: midAvg,
+            setAll: setAll
         }
     }
 
-    const outFloats = new Float64Array(new ArrayBuffer(64));
-    /**
-     * @type {setOut}
-     */
-    const setOut = function (x, y, w, h, m1, m2, dX, dY) {
-        outFloats[0] = x;
-        outFloats[1] = y;
-        outFloats[2] = w;
-        outFloats[3] = h;
-        outFloats[4] = m1;
-        outFloats[5] = m2;
-        outFloats[6] = dX;
-        outFloats[7] = dY;
-    }
-    const module = asmBuilder({ Math: { abs: Math.abs } }, { setOut }, null);
+    // const mem = new ArrayBuffer(80);
+    const mem = new ArrayBuffer(0x1000);
 
-    /**
-     * @param {Float32Array} box_raw
-     * @param {lastX} lastX
-     * @param {lastY} lastY
-     * @returns {{converted: Float64Array<ArrayBuffer>, dX: Number, dY: Number}}
-     */
-    return (box_raw, lastX, lastY) => {
-        module.reformat(...box_raw, lastX, lastY);
-        return outFloats;
+    const module = asmBuilder({ Math: { abs: Math.abs }, Float64Array }, null, mem);
+
+    return {
+        /**
+         * @param {Float32Array} box_raw
+         * @param {Number} lastX
+         * @param {Number} lastY
+         */
+        reformat: (box_raw, lastX, lastY) => {
+            module.reformat(box_raw[0], box_raw[1], box_raw[2], box_raw[3], lastX, lastY);
+        },
+        dimsAvg: module.dimsAvg,
+        midAvg: module.midAvg,
+        setAll: module.setAll,
+        converted: new Float64Array(mem, 0, 10), // 0-9
+        x_accum: new Float64Array(mem, 80, 5), // 10-14
+        y_accum: new Float64Array(mem, 120, 5), // 15-19
+        w_accum: new Float64Array(mem, 160, 5), // 20-24
+        h_accum: new Float64Array(mem, 200, 5), // 25-29
+        m1_accum: new Float64Array(mem, 240, 5), // 30-34
+        m2_accum: new Float64Array(mem, 280, 5), // 35-39
+        avgs: new Float64Array(mem, 320, 6) // 40-45
     }
 })();
 
@@ -221,8 +252,6 @@ exports.getGL = function (canvas) {
     const texture = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.clearColor(1.0, 1.0, 1.0, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
 
     /**
      * @param {HTMLImageElement | ImageBitmap | ImageData | HTMLCanvasElement | HTMLVideoElement} image 
@@ -238,24 +267,4 @@ exports.getGL = function (canvas) {
     }
 
     return module;
-}
-
-/**
- * @param {Number[]} input 
- * @returns {Number}
- */
-exports.arrayAvg = input => {
-    return (input[0] + input[1] + input[2] + input[3] + input[4]) / 5.0;
-}
-
-/**
- * @param {ArrayLike} array 
- * @param {*} val 
- */
-exports.setAll = (array, val) => {
-    array[0] = val;
-    array[1] = val;
-    array[2] = val;
-    array[3] = val;
-    array[4] = val;
 }

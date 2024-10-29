@@ -1,6 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 
-app.disableDomainBlockingFor3DAPIs();
 app.commandLine.appendSwitch('enable-features','SharedArrayBuffer');
 app.whenReady().then(() => {
     const win = new BrowserWindow({

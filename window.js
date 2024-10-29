@@ -2,15 +2,14 @@ const { Buffer } = require('node:buffer');
 const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
-//const { TFLiteModel } = require('@tensorflow/tfjs-tflite/dist/tflite_model');
-const { reformat, loadLabels, server, port, getGL,
-    onError, arrayAvg, setAll } = require('./shared');
-const labels = loadLabels("drone/drone-detect_labels.txt");
-// const labels = loadLabels("alexandra/alexandrainst_drone_detect_labels.txt");
+const { asmExport, server, port, getGL, onError } = require('./shared');
+const { converted, x_accum, y_accum, w_accum, h_accum, m1_accum, m2_accum, avgs, dimsAvg, midAvg,
+    reformat, setAll } = asmExport;
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
 const worker = new Worker("ipc.js");
 let ipcUp = false;
+
 /**
  * @param {MessageEvent} msg 
  */
@@ -27,15 +26,10 @@ worker.onmessage = msg => {
  */
 const metadata = Buffer.from(new SharedArrayBuffer(3));
 const rolling = new Float64Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-const x_accum = new Float64Array(5);
-const y_accum = new Float64Array(5);
-const w_accum = new Float64Array(5);
-const h_accum = new Float64Array(5);
-const m1_accum = new Float64Array(5);
-const m2_accum = new Float64Array(5);
 
 async function main() {
     try {
+
         console.log("Creating output renderer");
         /**
          * @type {HTMLCanvasElement}
@@ -203,7 +197,8 @@ async function main() {
          * @type {Number[]}
          */
         const timings = {
-            "webgl": [35, 17],
+            "cpu": [40, 20],
+            "webgl": [50, 17],
             "webgpu": [30, 15],
             "wasm": [40, 20]
         }[tf.getBackend()];
@@ -226,8 +221,8 @@ async function main() {
         let lastX = 0.0;
         let lastY = 0.0;
         const doInference = async function () {
+            const start = performance.now();
             if (!lock) {
-                const start = performance.now();
                 ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, dy, dw, dh);
                 const bitmap = await createImageBitmap(osc)
                 const img = tf.browser.fromPixels(bitmap);
@@ -240,14 +235,16 @@ async function main() {
                  * "TFLite_Detection_PostProcess:3": tf.Tensor }}
                  */
                 const output = model.predict(input);
+
                 /**
-                 * @type {Float32Array[]}
+                 * @type {Float32Array}
                  */
-                const dataOut = [
-                    await output.TFLite_Detection_PostProcess.data(),
-                    await output['TFLite_Detection_PostProcess:1'].data(),
-                    await output['TFLite_Detection_PostProcess:2'].data()
-                ];
+                const pointsOut = await output.TFLite_Detection_PostProcess.data();
+                /**
+                 * @type {Float32Array}
+                 */
+                const confOut = output['TFLite_Detection_PostProcess:2'].dataSync();
+                const numDetect = output['TFLite_Detection_PostProcess:3'].bufferSync().values[0];
 
                 img.dispose();
                 input.dispose();
@@ -258,23 +255,40 @@ async function main() {
 
                 trackExpired = (lostCount > discardOldThres) ? true : false;
 
-                const regainMax = 20;
-                if (dataOut[2][0] > .51) {
-                    const converted = reformat(new Float32Array(dataOut[0].buffer, dataOut[0].byteOffset, 16), lastX, lastY);
-                    if (trackExpired && (converted[6] > regainMax || converted[7] > regainMax)) {
-                        setAll(x_accum, converted[0]);
-                        setAll(y_accum, converted[1]);
-                        setAll(w_accum, converted[2]);
-                        setAll(h_accum, converted[3]);
-                        setAll(m1_accum, converted[4]);
-                        setAll(m2_accum, converted[5]);
+                const regainMax = 20.0; // max inter-frame jump when track expired
+                const trackMax = 30.0; // max inter-frame jump in active or stale track
+                const maxsize = 20000.0; // max size on screen
+                const minsize = 50.0; // min size on screen
+                const close = 5000.0 // size on screen before confidence threshold is raised
+                reformat(new Float32Array(pointsOut.buffer, pointsOut.byteOffset, 4), lastX, lastY);
+                let dX = converted[6];
+                let dY = converted[7];
+                let i = 0;
+                while ((((dX > trackMax || dY > trackMax || converted[9] >= 3) && !trackExpired)
+                    || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < .5)) && (i < numDetect)) {
+                    reformat(new Float32Array(pointsOut.buffer, pointsOut.byteOffset + (i + 1) * 16, 4), lastX, lastY);
+                    dX = converted[6];
+                    dY = converted[7];
+                    i++;
+                }
+                if (i == numDetect && i != 0) {
+                    i = numDetect - 1;
+                }
+                if (((dX > trackMax || dY > trackMax || converted[9] >= 3) && !trackExpired)
+                    || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < .5)) {
+                    i = 0;
+                    confOut[i] = 0.0;
+                }
+                lastX = converted[4];
+                lastY = converted[5];
+                if (confOut[i] > .4) {
+                    if (trackExpired && (dX > regainMax || dY > regainMax)) {
+                        setAll();
                     } else {
                         x_accum[idx_d] = converted[0];
                         y_accum[idx_d] = converted[1];
                         w_accum[idx_d] = converted[2];
                         h_accum[idx_d] = converted[3];
-                        lastX = converted[4];
-                        lastY = converted[5];
                         m1_accum[idx_d] = lastX;
                         m2_accum[idx_d] = lastY;
                     }
@@ -299,31 +313,33 @@ async function main() {
                     trackStale = true;
                 }
 
-                const smoothed = [arrayAvg(x_accum), arrayAvg(y_accum), arrayAvg(w_accum), arrayAvg(h_accum)];
+                dimsAvg();
+                //const smoothed = [arrayAvg(x_accum), arrayAvg(y_accum), arrayAvg(w_accum), arrayAvg(h_accum)];
                 ctx2.clearRect(0, 0, cvs_w, cvs_h);
                 ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
-                ctx2.rect(...smoothed);
+                ctx2.rect(avgs[0], avgs[1], avgs[2], avgs[3]);
                 ctx2.stroke();
 
-                const tag = labels[dataOut[1][0]];
-                desc.innerText = tag + ", " + dataOut[2][0].toFixed(7) + ", " + String(lostCount).padStart(3, '0');
+                desc.innerText = confOut[i].toFixed(7) + ", " + String(lostCount).padStart(3, '0');
+                //  +
+                //     ", " + (i + 1).toString();
 
                 if (ipcUp) {
                     metadata[0] = (lostCount != 0) ? 1 : 0;
                     metadata[1] = trackStale ? 1 : 0;
                     metadata[2] = trackExpired ? 1 : 0;
-                    worker.postMessage([[arrayAvg(m1_accum), arrayAvg(m2_accum), smoothed[2], smoothed[3], dataOut[2][0]], metadata]);
+                    midAvg();
+                    worker.postMessage([[avgs[4], avgs[5], avgs[2], avgs[3], confOut[i]], metadata]);
                 }
-
-                const msec = performance.now() - start;
-                rolling[idx_t] = msec;
-                idx_t = (idx_t + 1) % 10;
-                const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
-                    rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
-                perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
-                    (total / 10).toFixed(2).padStart(6, '0') + "ms";
             }
+            const msec = performance.now() - start;
+            rolling[idx_t] = msec;
+            idx_t = (idx_t + 1) % 10;
+            const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
+                rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
+            perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
+                (total / 10).toFixed(2).padStart(6, '0') + "ms";
             setTimeout(() => doInference().catch(onError), 5);
         }
 

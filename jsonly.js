@@ -8,13 +8,15 @@ app.whenReady().then(() => {
         webPreferences: {
             sandbox: false,
             nodeIntegration: true,
-            contextIsolation: false,
-            nodeIntegrationInWorker: true
+            nodeIntegrationInWorker: true,
+            contextIsolation: false
         }
     });
 
     ipcMain.on('error', () => { win.webContents.openDevTools({ mode: 'detach' }); });
-    win.loadFile('gl_worker.html');
+    win.loadFile('js_worker.html');
+    //win.webContents.openDevTools();
+
 });
 
 app.on('window-all-closed', () => app.quit());
