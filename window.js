@@ -194,15 +194,16 @@ async function main() {
 
         console.log("Running model");
         /**
-         * @type {Number[]}
+         * @type {Number}
          */
         const timings = {
-            "cpu": [40, 20],
-            "webgl": [50, 17],
-            "webgpu": [30, 15],
-            "wasm": [40, 20]
+            "cpu": 50,
+            "webgl": 50,
+            "webgpu": 30,
+            "wasm": 50
         }[tf.getBackend()];
-        const [discardOldThres, trackLostThres] = timings;
+        const discardOldThres = timings;
+        const trackLostThres = timings / 2;
         const dy = (canvas.height - (webcam.height * ratio)) / 2;
         const dw = webcam.width * ratio;
         const dh = webcam.height * ratio
@@ -253,29 +254,31 @@ async function main() {
                 output['TFLite_Detection_PostProcess:2'].dispose();
                 output['TFLite_Detection_PostProcess:3'].dispose();
 
-                trackExpired = (lostCount > discardOldThres) ? true : false;
+                trackExpired = (lostCount > discardOldThres);
 
                 const regainMax = 20.0; // max inter-frame jump when track expired
                 const trackMax = 30.0; // max inter-frame jump in active or stale track
                 const maxsize = 20000.0; // max size on screen
-                const minsize = 50.0; // min size on screen
+                const minsize = 55.0; // min size on screen
                 const close = 5000.0 // size on screen before confidence threshold is raised
+                const bigConf = .5
+                const maxnarrow = 3.0; // max W/H
                 reformat(new Float32Array(pointsOut.buffer, pointsOut.byteOffset, 4), lastX, lastY);
                 let dX = converted[6];
                 let dY = converted[7];
                 let i = 0;
-                while ((((dX > trackMax || dY > trackMax || converted[9] >= 3) && !trackExpired)
-                    || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < .5)) && (i < numDetect)) {
+                while ((((dX > trackMax || dY > trackMax || converted[9] >= maxnarrow) && !trackExpired)
+                    || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < bigConf)) && (i + 1) < numDetect) {
                     reformat(new Float32Array(pointsOut.buffer, pointsOut.byteOffset + (i + 1) * 16, 4), lastX, lastY);
                     dX = converted[6];
                     dY = converted[7];
                     i++;
                 }
-                if (i == numDetect && i != 0) {
-                    i = numDetect - 1;
-                }
-                if (((dX > trackMax || dY > trackMax || converted[9] >= 3) && !trackExpired)
-                    || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < .5)) {
+                // if (i == numDetect && i != 0) {
+                //     i = numDetect - 1;
+                // }
+                if (((dX > trackMax || dY > trackMax || converted[9] >= maxnarrow) && !trackExpired)
+                    || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < bigConf)) {
                     i = 0;
                     confOut[i] = 0.0;
                 }
@@ -314,7 +317,6 @@ async function main() {
                 }
 
                 dimsAvg();
-                //const smoothed = [arrayAvg(x_accum), arrayAvg(y_accum), arrayAvg(w_accum), arrayAvg(h_accum)];
                 ctx2.clearRect(0, 0, cvs_w, cvs_h);
                 ctx2.drawImage(bitmap, 0, 0);
                 ctx2.beginPath();
@@ -322,8 +324,6 @@ async function main() {
                 ctx2.stroke();
 
                 desc.innerText = confOut[i].toFixed(7) + ", " + String(lostCount).padStart(3, '0');
-                //  +
-                //     ", " + (i + 1).toString();
 
                 if (ipcUp) {
                     metadata[0] = (lostCount != 0) ? 1 : 0;
