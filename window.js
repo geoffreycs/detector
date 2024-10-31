@@ -4,7 +4,7 @@ const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
 const { asmExport, server, port, getGL, onError } = require('./shared');
 const { converted, x_accum, y_accum, w_accum, h_accum, m1_accum, m2_accum, avgs, dimsAvg, midAvg,
-    reformat, setAll } = asmExport;
+    reformat, setAll, accConf, avgConf } = asmExport;
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
 const worker = new Worker("ipc.js");
@@ -261,7 +261,7 @@ async function main() {
                 const maxsize = 20000.0; // max size on screen
                 const minsize = 55.0; // min size on screen
                 const close = 5000.0 // size on screen before confidence threshold is raised
-                const bigConf = .5
+                const bigConf = .5 // min confidence for up-close detections
                 const maxnarrow = 3.0; // max W/H
                 reformat(new Float32Array(pointsOut.buffer, pointsOut.byteOffset, 4), lastX, lastY);
                 let dX = converted[6];
@@ -274,9 +274,6 @@ async function main() {
                     dY = converted[7];
                     i++;
                 }
-                // if (i == numDetect && i != 0) {
-                //     i = numDetect - 1;
-                // }
                 if (((dX > trackMax || dY > trackMax || converted[9] >= maxnarrow) && !trackExpired)
                     || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < bigConf)) {
                     i = 0;
@@ -296,6 +293,7 @@ async function main() {
                         m2_accum[idx_d] = lastY;
                     }
                     lostCount = 0;
+                    accConf(confOut[i]);
                 } else {
                     x_accum[idx_d] = x_accum[last];
                     y_accum[idx_d] = y_accum[last];
@@ -304,16 +302,21 @@ async function main() {
                     m1_accum[idx_d] = m1_accum[last];
                     m2_accum[idx_d] = m2_accum[last];
                     lostCount++;
-                }
+                }                
                 last = idx_d;
                 idx_d = (idx_d + 1) % 5;
 
-                if (lostCount < trackLostThres) {
+                trackStale = (lostCount > trackLostThres);
+
+                if (lostCount === 0) {
+                    ctx2.strokeStyle = 'green';
+                } else if (!trackStale) {
                     ctx2.strokeStyle = 'blue';
-                    trackStale = false;
+                } else if (!trackExpired) {
+                    accConf(confOut[i]);
+                    ctx2.strokeStyle = 'purple';
                 } else {
                     ctx2.strokeStyle = 'red';
-                    trackStale = true;
                 }
 
                 dimsAvg();
@@ -323,14 +326,17 @@ async function main() {
                 ctx2.rect(avgs[0], avgs[1], avgs[2], avgs[3]);
                 ctx2.stroke();
 
-                desc.innerText = confOut[i].toFixed(7) + ", " + String(lostCount).padStart(3, '0');
+                const smoothConf = avgConf();
+
+                desc.innerText = confOut[i].toFixed(7) + ", " + smoothConf.toFixed(7) + ", "
+                    + String(lostCount).padStart(3, '0');
 
                 if (ipcUp) {
                     metadata[0] = (lostCount != 0) ? 1 : 0;
                     metadata[1] = trackStale ? 1 : 0;
                     metadata[2] = trackExpired ? 1 : 0;
                     midAvg();
-                    worker.postMessage([[avgs[4], avgs[5], avgs[2], avgs[3], confOut[i]], metadata]);
+                    worker.postMessage([[avgs[4], avgs[5], avgs[2], avgs[3], confOut[i], smoothConf], metadata]);
                 }
             }
             const msec = performance.now() - start;

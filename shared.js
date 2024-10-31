@@ -23,6 +23,7 @@ exports.asmExport = (() => {
         var mY = 0.0;
         var w = 0.0;
         var h = 0.0;
+        var idx = 0;
 
         /**
          * @param {Number} a 
@@ -107,11 +108,30 @@ exports.asmExport = (() => {
             work[39] = +work[5];
         }
 
+        /**
+         * @param {Number} conf 
+         */
+        function accConf(conf) {
+            conf = +conf;
+            work[((idx + 46) << 3) >> 3] = conf;
+            idx = (idx + 1) | 0;
+            idx = ((idx | 0) % 5) | 0;
+        }
+
+        /**
+         * @returns {Number}
+         */
+        function avgConf() {
+            return ((+work[46] + +work[47] + +work[48] + +work[49] + +work[50]) / 5.0);
+        }
+
         return {
             reformat: reformat,
             dimsAvg: dimsAvg,
             midAvg: midAvg,
-            setAll: setAll
+            setAll: setAll,
+            accConf: accConf,
+            avgConf: avgConf
         }
     }
 
@@ -132,6 +152,8 @@ exports.asmExport = (() => {
         dimsAvg: module.dimsAvg,
         midAvg: module.midAvg,
         setAll: module.setAll,
+        accConf: module.accConf,
+        avgConf: module.avgConf,
         converted: new Float64Array(mem, 0, 10), // 0-9
         x_accum: new Float64Array(mem, 80, 5), // 10-14
         y_accum: new Float64Array(mem, 120, 5), // 15-19
