@@ -1,36 +1,33 @@
 import sys
-import os
-import signal
 import time
 import multiprocessing
 import threading
 
+class setInterval:
+    def __init__(self, interval: float, action):
+        self.interval = interval
+        self.action = action
+        self.stopEvent = threading.Event()
+        self.thread = threading.Thread(target=self.__setInterval)
+        self.thread.start()
 
-# class setInterval:
-#     def __init__(self, interval: float, action):
-#         self.interval = interval
-#         self.action = action
-#         self.stopEvent = threading.Event()
-#         self.thread = threading.Thread(target=self.__setInterval)
-#         self.thread.start()
+    def __setInterval(self):
+        nextTime = time.time() + self.interval
+        while not self.stopEvent.wait(nextTime-time.time()):
+            nextTime += self.interval
+            if state.value != 4:
+                self.action()
+                inter.cancel()
 
-#     def __setInterval(self):
-#         nextTime = time.time() + self.interval
-#         while not self.stopEvent.wait(nextTime-time.time()):
-#             nextTime += self.interval
-#             self.action()
+    def cancel(self):
+        self.stopEvent.set()
 
-#     def cancel(self):
-#         self.stopEvent.set()
-#         self.thread.join()
-
-
+standalone = False
 dims = multiprocessing.Array('d', 4)
 conf = multiprocessing.Array('d', 2)
-state = multiprocessing.Array('i', 4)
+state = multiprocessing.Value('i')
 
-
-def runner(dims, conf, state):
+def internal_runner(dims, conf, state):
     import socket
     import json
 
@@ -44,21 +41,23 @@ def runner(dims, conf, state):
         print(f"Listening on {HOST}:{PORT}")
 
         while True:
-            state[3] = 1
+            state.value = 4
             try:
                 connection = server.accept()[0]
-                state[3] = 0
+                state.value = 3
                 while True:
                     data = connection.recv(1024)
                     if data:
                         msg = json.loads(data)
+                        # print(msg)
                         for i in range(4):
-                            dims[i] = msg[0][i]
-                        conf[0] = msg[0][4]
-                        conf[1] = msg[0][5]
-                        state[0] = msg[1]['0']
-                        state[1] = msg[1]['1']
-                        state[2] = msg[1]['2']
+                            dims[i] = msg[i]
+                        conf[0] = msg[4]
+                        conf[1] = msg[5]
+                        state.value = msg[6]
+                        
+                        if standalone:
+                            printOut()
                     else:
                         break
             except:
@@ -67,38 +66,56 @@ def runner(dims, conf, state):
         sys.exit(0)
 
 def printOut():
-    print(list(dims), list(conf), list(state))
+    print(list(dims), list(conf), state.value)
+    
+def getDims():
+    return tuple(dims)
 
-def start():
-    p1 = multiprocessing.Process(None, runner, None, (dims, conf, state), daemon=False)
+def getConf():
+    return tuple(conf)
 
-    # inter = setInterval(.25, printOut)
+def getStatus():
+    return state.value
 
-    def common_handler():
-        # inter.cancel()
-        p1.terminate()
-        try:
-            p1.kill()
-        finally:
-            p1.join()
-            p1.close()
+def isConnected():
+    return False if state.value == 4 else True
 
-    def unix_handler(sig, frame):
-        sys.stderr = os.open(os.devnull, os.O_RDWR)
-        common_handler()
-        sys.exit(0)
+def noop():
+    pass
 
-    def win32_handler(a):
-        common_handler()
-        sys.exit(0)
+def common_handler():
+    p1.terminate()
+    try:
+        p1.kill()
+    finally:
+        p1.join()
+        p1.close()
+
+def unix_handler(sig, frame):
+    common_handler()
+    sys.exit(0)
+
+def win32_handler(a):
+    common_handler()
+    sys.exit(0)
+
+def start(callback=noop):
+    global inter, p1
+    
+    p1 = multiprocessing.Process(None, internal_runner, None, (dims, conf, state), daemon=True)
+
+    inter = setInterval(.2, callback)
 
     if sys.platform == "win32":
         import win32api
         win32api.SetConsoleCtrlHandler(win32_handler, True)
     else:
+        import signal
         signal.signal(signal.SIGINT, unix_handler)
         
     p1.start()
 
 if __name__ == "__main__":
+    standalone = True
     start()
+    p1.join()
