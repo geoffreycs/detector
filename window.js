@@ -1,4 +1,3 @@
-const { Buffer } = require('node:buffer');
 const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
@@ -9,6 +8,7 @@ const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
 const worker = new Worker("ipc.js");
 let ipcUp = false;
+let pause = false;
 
 /**
  * @param {MessageEvent} msg 
@@ -37,6 +37,7 @@ async function init() {
     ctx2.fillText("Waiting for webcam", 20, (canvas.height / 2) - 7);
     ctx2.lineWidth = 2;
     const desc = document.getElementById("class");
+    document.querySelector("#pause").onclick = () => { pause = !pause };
 
     console.log("Acquiring webcam");
     /**
@@ -85,7 +86,9 @@ async function init() {
         cnvGL.width = webcam.naturalWidth;
         const drawGL = getGL(cnvGL);
         const newHandler = () => {
-            drawGL(webcam);
+            if (!pause) {
+                drawGL(webcam);
+            }
             lastFrame = null;
             lock = false;
         }
@@ -207,6 +210,7 @@ async function init() {
      * @type {HTMLParagraphElement}
      */
     const perf = document.querySelector("#perf");
+
     var idx_t = 0 | 0;
     var idx_d = 0 | 0;
     var last = 4 | 0;
@@ -215,11 +219,33 @@ async function init() {
     let trackStale = true;
     let lastX = 0.0;
     let lastY = 0.0;
-    let status = 0 | 0;
+    var status = 0 | 0;
+    const regainMax = 20.0; // max inter-frame jump when track expired
+    const trackMax = 50.0; // max inter-frame jump in active or stale track
+    const maxsize = 20000.0; // max size on screen
+    const minsize = 20.0; // min size on screen
+    const close = 1000.0 // size on screen before confidence threshold is raised
+    const bigConf = .5 // min confidence for up-close detections
+    const maxsquat = 2.9; // max W/H
+    const closesquat = .7; // min W/H when close
+    /**
+     * @param {Number} dX 
+     * @param {Number} dY 
+     * @param {Number} confInst
+     * @returns {Boolean}
+     */
+    const checkHeuristics = function (dX, dY, frame) {
+        return ((dX > trackMax || dY > trackMax || converted[9] > maxsquat) && !trackExpired)
+            || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && (confInst < bigConf || closesquat > converted[9]));
+    }
+
     const doInference = async function () {
+        let i = 0;
         const start = performance.now();
         if (!lock) {
-            ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, dy, dw, dh);
+            if (!pause) {
+                ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, dy, dw, dh);
+            }
             const bitmap = await createImageBitmap(osc)
             const img = tf.browser.fromPixels(bitmap);
             const input = tf.expandDims(img, 0);
@@ -251,26 +277,17 @@ async function init() {
 
             trackExpired = (lostCount > discardOldThres);
 
-            const regainMax = 20.0; // max inter-frame jump when track expired
-            const trackMax = 30.0; // max inter-frame jump in active or stale track
-            const maxsize = 20000.0; // max size on screen
-            const minsize = 55.0; // min size on screen
-            const close = 5000.0 // size on screen before confidence threshold is raised
-            const bigConf = .5 // min confidence for up-close detections
-            const maxnarrow = 3.0; // max W/H
             reformat(new Float32Array(pointsOut.buffer, pointsOut.byteOffset, 4), lastX, lastY);
             let dX = converted[6];
             let dY = converted[7];
-            let i = 0;
-            while ((((dX > trackMax || dY > trackMax || converted[9] >= maxnarrow) && !trackExpired)
-                || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < bigConf)) && (i + 1) < numDetect) {
+            i = 0;
+            while (checkHeuristics(dX, dY, confOut[i]) && (i + 1) < numDetect) {
                 reformat(new Float32Array(pointsOut.buffer, pointsOut.byteOffset + (i + 1) * 16, 4), lastX, lastY);
                 dX = converted[6];
                 dY = converted[7];
                 i++;
             }
-            if (((dX > trackMax || dY > trackMax || converted[9] >= maxnarrow) && !trackExpired)
-                || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && confOut[i] < bigConf)) {
+            if (checkHeuristics(dX, dY, confOut[i])) {
                 i = 0;
                 confOut[i] = 0.0;
             }
@@ -341,7 +358,7 @@ async function init() {
         const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
             rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
         perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
-            (total / 10).toFixed(2).padStart(6, '0') + "ms";
+            (total / 10).toFixed(2).padStart(6, '0') + "ms, rej " + i.toString();
         setTimeout(() => doInference().catch(onError), 5);
     }
 
