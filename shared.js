@@ -65,11 +65,6 @@ exports.asmExport = (() => {
             work[43] = (+work[25] + +work[26] + +work[27] + +work[28] + +work[29]) / 5.0;
         }
 
-        function midAvg() {
-            work[44] = (+work[30] + +work[31] + +work[32] + +work[33] + +work[34]) / 5.0;
-            work[45] = (+work[35] + +work[36] + +work[37] + +work[38] + +work[39]) / 5.0;
-        }
-
         function setAll() {
             work[10] = +work[0];
             work[11] = +work[0];
@@ -128,7 +123,6 @@ exports.asmExport = (() => {
         return {
             reformat: reformat,
             dimsAvg: dimsAvg,
-            midAvg: midAvg,
             setAll: setAll,
             accConf: accConf,
             avgConf: avgConf
@@ -150,7 +144,6 @@ exports.asmExport = (() => {
             module.reformat(box_raw[0], box_raw[1], box_raw[2], box_raw[3], lastX, lastY);
         },
         dimsAvg: module.dimsAvg,
-        midAvg: module.midAvg,
         setAll: module.setAll,
         accConf: module.accConf,
         avgConf: module.avgConf,
