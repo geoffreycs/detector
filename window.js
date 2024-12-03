@@ -234,7 +234,7 @@ async function init() {
      * @param {Number} confInst
      * @returns {Boolean}
      */
-    const checkHeuristics = function (dX, dY, frame) {
+    const checkHeuristics = function (dX, dY, confInst) {
         return ((dX > trackMax || dY > trackMax || converted[9] > maxsquat) && !trackExpired)
             || converted[8] > maxsize || converted[8] < minsize || (converted[8] > close && (confInst < bigConf || closesquat > converted[9]));
     }
