@@ -32,6 +32,7 @@
         </canvas>
         <div id="class" style="padding-top: 5px;">Loading...</div>
     </div>
+    <p id="perf"></p>
     <script type="text/javascript">
         require('@tensorflow/tfjs-backend-webgpu');
         tf.setBackend('webgpu').then(() => main());
