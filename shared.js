@@ -268,6 +268,8 @@ exports.getGL = function (canvas) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
 
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+
     /**
      * @param {HTMLImageElement | ImageBitmap | ImageData | HTMLCanvasElement | HTMLVideoElement} image 
      * @returns {void}
@@ -281,5 +283,14 @@ exports.getGL = function (canvas) {
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
-    return module;
+    return {
+        module,
+        resize: () => {
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+            
+        },
+        clear: () => {
+            gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+    };
 }

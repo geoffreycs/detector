@@ -2,6 +2,7 @@ const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
 const { asmExport, server, port, getGL, onError } = require('./shared');
+const { get } = require('http');
 const { converted, x_accum, y_accum, w_accum, h_accum, m1_accum, m2_accum, avgs, dimsAvg,
     reformat, setAll, accConf, avgConf } = asmExport;
 const osc = new OffscreenCanvas(300, 300);
@@ -24,6 +25,13 @@ async function init() {
     ctx2.fillText("Waiting for input", 20, (canvas.height / 2) - 7);
     const desc = document.getElementById("class");
 
+    const cnvGL = document.createElement('canvas');
+    cnvGL.hidden = true;
+    cnvGL.height = 300;
+    cnvGL.width = 300;
+    const GLctx = getGL(cnvGL);
+    const drawGL = GLctx.module;
+
     console.log("Starting HTTP server to self-serve modules on port " + port.toString());
     server.listen(port);
 
@@ -41,8 +49,22 @@ async function init() {
      * @type {HTMLVideoElement}
      */
     const webcam = document.querySelector('#webcam');
-    webcam.addEventListener("play", () => { pause = false });
+    webcam.addEventListener("play", () => {
+        pause = false;
+        const onFrame = function () {
+            if (!pause) {
+                drawGL(webcam);
+                webcam.requestVideoFrameCallback(onFrame);
+            }
+        }
+        onFrame();
+    });
     webcam.addEventListener("pause", () => { pause = true });
+    webcam.onseeking = () => {
+        if (pause) {
+            drawGL(webcam);
+        }
+    };
     /**
      * @type {HTMLInputElement}
      */
@@ -53,7 +75,6 @@ async function init() {
     const handleFiles = function (FileList) {
         const newFile = FileList ? FileList.item(0) : source.files[0];
         if (newFile.type.includes("video/")) {
-            ctx1.clearRect(0, 0, osc.width, osc.height);
             if (firstPlay) {
                 console.log("Changing media source");
                 window.URL.revokeObjectURL(webcam.src);
@@ -64,9 +85,15 @@ async function init() {
             }
             webcam.src = window.webkitURL.createObjectURL(newFile);
             webcam.load();
+            ctx1.clearRect(0, 0, osc.width, osc.height);
             const play = webcam.play();
             play.catch(onError);
             play.then(function () {
+                GLctx.clear();
+                cnvGL.width = webcam.videoWidth;
+                cnvGL.height = webcam.videoHeight;
+                GLctx.resize();
+                GLctx.clear();
                 webcam.controls = true;
                 ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
                 vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio, (canvas.width - (webcam.videoWidth * ratio)) / 2];
@@ -164,8 +191,9 @@ async function init() {
         if (!pause) {
             let i = 0;
             const start = performance.now();
-            ctx1.drawImage(webcam, 0, 0, webcam.videoWidth, webcam.videoHeight, vid_params[3], vid_params[0], vid_params[1], vid_params[2]);
-            const img = tf.browser.fromPixels(osc);``
+            ctx1.drawImage(cnvGL, 0, 0, webcam.videoWidth, webcam.videoHeight, vid_params[3], vid_params[0], vid_params[1], vid_params[2]);
+            const bitmap = await createImageBitmap(osc);
+            const img = tf.browser.fromPixels(bitmap);
             const input = tf.expandDims(img, 0);
 
             /**
@@ -255,7 +283,7 @@ async function init() {
 
             dimsAvg();
             ctx2.clearRect(0, 0, cnv_w, cnv_h);
-            ctx2.drawImage(osc, 0, 0);
+            ctx2.drawImage(bitmap, 0, 0);
             ctx2.beginPath();
             ctx2.rect(avgs[0], avgs[1], avgs[2], avgs[3]);
             ctx2.stroke();
