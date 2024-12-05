@@ -6,6 +6,8 @@ const { converted, x_accum, y_accum, w_accum, h_accum, m1_accum, m2_accum, avgs,
     reformat, setAll, accConf, avgConf } = asmExport;
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
+const cnvGL = document.createElement('canvas');
+cnvGL.hidden = true;
 const worker = new Worker("ipc.js");
 let ipcUp = false;
 let pause = false;
@@ -78,8 +80,6 @@ async function init() {
         document.getElementById("submit").click();
     }
 
-    const cnvGL = document.createElement('canvas');
-    cnvGL.hidden = true;
     webcam.onload = function () {
         console.log("Initial frame loaded");
         cnvGL.height = webcam.naturalHeight;
