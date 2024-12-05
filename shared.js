@@ -129,9 +129,7 @@ exports.asmExport = (() => {
         }
     }
 
-    // const mem = new ArrayBuffer(80);
     const mem = new ArrayBuffer(0x1000);
-
     const module = asmBuilder({ Math: { abs: Math.abs }, Float64Array }, null, mem);
 
     return {

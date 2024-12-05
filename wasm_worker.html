@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="utf-8">
     <script src="window.js"></script>
-    <script src="flv.min.js"></script>
     <title>TensorFlow on WebAssembly</title>
     <style>
 		html, body {
@@ -22,6 +21,7 @@
     <form>
         <label for="source">File:</label>
         <input type="file" id="source" accept="video/*"/> 
+        <button id="save">Save log</button>
     </form>
     <div style="padding-top: 5px;">
         <video width="300" height="300" id="webcam" muted preload="metadata" controlslist="nodownload nofullscreen noremoteplayback">

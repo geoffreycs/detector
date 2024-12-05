@@ -2,15 +2,27 @@ const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
 const { asmExport, server, port, getGL, onError } = require('./shared');
-const { get } = require('http');
 const { converted, x_accum, y_accum, w_accum, h_accum, m1_accum, m2_accum, avgs, dimsAvg,
     reformat, setAll, accConf, avgConf } = asmExport;
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
+const blank = (new OffscreenCanvas(2000, 2000)).getContext('2d');
+blank.clearRect(0, 0, 2000, 2000);
+
+const cnvGL = document.createElement('canvas');
+cnvGL.hidden = true;
+cnvGL.height = 300;
+cnvGL.width = 300;
+const GLctx = getGL(cnvGL);
+const drawGL = GLctx.module;
 
 let ratio = 0.0;
 let vid_params = [0.0, 0.0, 0.0, 0.0];
 var pause = true;
+var firstPlay = false;
+
+const header = "VideoTime,RawConf,AvgConf,Size,Status,Rej\n";
+let log = header;
 
 const rolling = new Float64Array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 
@@ -25,13 +37,6 @@ async function init() {
     ctx2.fillText("Waiting for input", 20, (canvas.height / 2) - 7);
     const desc = document.getElementById("class");
 
-    const cnvGL = document.createElement('canvas');
-    cnvGL.hidden = true;
-    cnvGL.height = 300;
-    cnvGL.width = 300;
-    const GLctx = getGL(cnvGL);
-    const drawGL = GLctx.module;
-
     console.log("Starting HTTP server to self-serve modules on port " + port.toString());
     server.listen(port);
 
@@ -43,8 +48,21 @@ async function init() {
     server.close();
     server.removeAllListeners();
 
+    /**
+     * @type {HTMLButtonElement}
+     */
+    const save = document.getElementById("save");
+    const download = document.createElement("a");
+    download.download = "log.csv";
+    save.onclick = function () {
+        if (download.href) {
+            webkitURL.revokeObjectURL(download.href);
+        }
+        download.href = URL.createObjectURL(new Blob([log], { type: "text/plain" }));
+        download.click();
+    }
+
     console.log("Waiting for video selection");
-    var firstPlay = false;
     /**
      * @type {HTMLVideoElement}
      */
@@ -60,11 +78,13 @@ async function init() {
         onFrame();
     });
     webcam.addEventListener("pause", () => { pause = true });
-    webcam.onseeking = () => {
+    webcam.onseeked = function () {
         if (pause) {
             drawGL(webcam);
+            pause = false;
         }
     };
+    webcam.onended = () => { pause = true };
     /**
      * @type {HTMLInputElement}
      */
@@ -80,16 +100,21 @@ async function init() {
                 window.URL.revokeObjectURL(webcam.src);
                 webcam.controls = false;
                 webcam.pause();
+                log = header;
             } else {
                 firstPlay = true;
             }
             webcam.src = window.webkitURL.createObjectURL(newFile);
             webcam.load();
             ctx1.clearRect(0, 0, osc.width, osc.height);
+            ctx2.clearRect(0, 0, canvas.width, canvas.height);
+            const clearing = function () {
+
+            }
             const play = webcam.play();
             play.catch(onError);
             play.then(function () {
-                GLctx.clear();
+                drawGL(blank.canvas);
                 cnvGL.width = webcam.videoWidth;
                 cnvGL.height = webcam.videoHeight;
                 GLctx.resize();
@@ -97,6 +122,8 @@ async function init() {
                 webcam.controls = true;
                 ratio = Math.min(canvas.width / webcam.videoWidth, canvas.height / webcam.videoHeight);
                 vid_params = [(canvas.height - (webcam.videoHeight * ratio)) / 2, webcam.videoWidth * ratio, webcam.videoHeight * ratio, (canvas.width - (webcam.videoWidth * ratio)) / 2];
+                blank.canvas.height = webcam.videoHeight;
+                blank.canvas.width = webcam.videoWidth;
             });
         } else {
             console.log("Ignoring dropped file of type", newFile.type);
@@ -299,9 +326,14 @@ async function init() {
             const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
                 rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
             perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
-                (total / 10).toFixed(2).padStart(6, '0') + "ms, rej " + i.toString();
+                (total / 10).toFixed(2).padStart(6, '0') + "ms, rej " + i.toString() + ", " +
+                String(webcam.currentTime);
+            log = log + String(webcam.currentTime) + "," + confOut[i].toFixed(7) +
+                "," + smoothConf.toFixed(7) + "," + converted[8].toFixed(10) + "," +
+                status.toString() + "," + new String(i) + "\n";
         }
         setTimeout(() => doInference().catch(onError), 5);
+        pause = webcam.paused;
     }
 
     const runner = doInference();
