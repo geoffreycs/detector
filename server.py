@@ -22,8 +22,8 @@ class setInterval:
     def cancel(self):
         self.stopEvent.set()
 
-standalone = False
-dims = multiprocessing.Array('d', 4)
+standalone: bool = False
+dims = multiprocessing.Array('d', 6)
 conf = multiprocessing.Array('d', 2)
 state = multiprocessing.Value('i')
 
@@ -52,6 +52,8 @@ def internal_runner(dims, conf, state):
                         # print(msg)
                         for i in range(4):
                             dims[i] = msg[i]
+                        dims[4] = dims[0] + dims[2]/2
+                        dims[5] = dims[1] + dims[3]/2
                         conf[0] = msg[4]
                         conf[1] = msg[5]
                         state.value = msg[6]
