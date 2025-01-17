@@ -1,23 +1,21 @@
 const net = require('net');
-let destroying = false;
 
 /**
  * @param {net.Socket} client 
  */
 const onError = function (client) {
-    destroying = true;
-    client.end();    
+    client.removeAllListeners();
+    client.end();
     client.destroy();
+    postMessage("Resetting socket");
     setTimeout(main, 1000);
-    destroying = false;
 }
 
 function main() {
     const client = net.createConnection(1337, "127.0.0.1", () => {
         client.on('close', () => {
-            if (!destroying) {
-                onError(client);
-            }
+            postMessage("Socket closed");
+            onError(client);
         });
         /**
          * @param {MessageEvent<Number[][]>} msg
