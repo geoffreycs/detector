@@ -63,6 +63,8 @@ def internal_runner(dims, conf, state):
                     else:
                         break
             except:
+                print("IPC TCP connection closed")
+                connection.shutdown(socket.SHUT_RDWR)
                 connection.close()
     finally:
         sys.exit(0)
