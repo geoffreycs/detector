@@ -35,7 +35,12 @@ def internal_runner(dims, conf, state):
         HOST = '127.0.0.1'
         PORT = 1337
 
+        def conn_kill(conx: socket):
+            conx.shutdown(socket.SHUT_RDWR)
+            conx.close()
+
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((HOST, PORT))
         server.listen(1)
         print(f"Listening on {HOST}:{PORT}")
@@ -61,11 +66,11 @@ def internal_runner(dims, conf, state):
                         if standalone:
                             printOut()
                     else:
+                        conn_kill(connection)
                         break
             except:
                 print("IPC TCP connection closed")
-                connection.shutdown(socket.SHUT_RDWR)
-                connection.close()
+                conn_kill(connection)
     finally:
         sys.exit(0)
 
@@ -90,6 +95,7 @@ def noop():
 def common_handler():
     p1.terminate()
     try:
+        inter.cancel()
         p1.kill()
     finally:
         p1.join()

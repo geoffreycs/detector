@@ -7,16 +7,15 @@ const onError = function (client) {
     client.removeAllListeners();
     client.end();
     client.destroy();
-    postMessage("Resetting socket");
-    setTimeout(main, 1000);
+    setTimeout(main, 500);
 }
 
 function main() {
     const client = net.createConnection(1337, "127.0.0.1", () => {
-        client.on('close', () => {
-            postMessage("Socket closed");
-            onError(client);
-        });
+        // client.on('close', () => {
+        //     postMessage("Socket closed \"gracefully\"");
+        //     onError(client);
+        // });
         /**
          * @param {MessageEvent<Number[][]>} msg
          */
@@ -26,6 +25,7 @@ function main() {
         postMessage("connected");
     });
     client.on('error', err => {
+        onmessage = () => { };
         postMessage(err);
         onError(client);
     });
