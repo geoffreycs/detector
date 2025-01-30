@@ -2,9 +2,11 @@ import sys
 import time
 import multiprocessing
 import threading
+from typing import List, Tuple
+from multiprocessing.sharedctypes import SynchronizedArray, Synchronized
 
 class setInterval:
-    def __init__(self, interval: float, action):
+    def __init__(self, interval: float, action: function):
         self.interval = interval
         self.action = action
         self.stopEvent = threading.Event()
@@ -23,11 +25,11 @@ class setInterval:
         self.stopEvent.set()
 
 standalone: bool = False
-dims = multiprocessing.Array('d', 6)
-conf = multiprocessing.Array('d', 2)
-state = multiprocessing.Value('i')
+dims: SynchronizedArray[float] = multiprocessing.Array('d', 6)
+conf: SynchronizedArray[float] = multiprocessing.Array('d', 2)
+state: Synchronized[int] = multiprocessing.Value('i')
 
-def internal_runner(dims, conf, state):
+def internal_runner(dims: SynchronizedArray[float], conf: SynchronizedArray[float], state: Synchronized[int]):
     import socket
     import json
 
@@ -35,7 +37,7 @@ def internal_runner(dims, conf, state):
         HOST = '127.0.0.1'
         PORT = 1337
 
-        def conn_kill(conx: socket):
+        def conn_kill(conx: socket.socket):
             conx.shutdown(socket.SHUT_RDWR)
             conx.close()
 
@@ -80,13 +82,13 @@ def printOut():
 def getDims():
     return tuple(dims)
 
-def getConf():
+def getConf() -> Tuple[float]:
     return tuple(conf)
 
-def getStatus():
+def getStatus() -> int:
     return state.value
 
-def isConnected():
+def isConnected() -> bool:
     return False if state.value == 4 else True
 
 def noop():
@@ -101,15 +103,7 @@ def common_handler():
         p1.join()
         p1.close()
 
-def unix_handler(sig, frame):
-    common_handler()
-    sys.exit(0)
-
-def win32_handler(a):
-    common_handler()
-    sys.exit(0)
-
-def start(callback=noop):
+def start(callback: function=noop):
     global inter, p1
     
     p1 = multiprocessing.Process(None, internal_runner, None, (dims, conf, state), daemon=True)
@@ -118,9 +112,15 @@ def start(callback=noop):
 
     if sys.platform == "win32":
         import win32api
+        def win32_handler(a):
+            common_handler()
+            sys.exit(0)
         win32api.SetConsoleCtrlHandler(win32_handler, True)
     else:
         import signal
+        def unix_handler(sig, frame):
+            common_handler()
+            sys.exit(0)
         signal.signal(signal.SIGINT, unix_handler)
         
     p1.start()
