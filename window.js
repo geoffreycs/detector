@@ -1,13 +1,11 @@
 const fs = require('fs');
 const tf = require('@tensorflow/tfjs-core');
 const tflite = require('@tensorflow/tfjs-tflite');
-const { asmExport, server, port, getGL, onError } = require('./shared');
+const { asmExport, server, port, onError } = require('./shared');
 const { converted, x_accum, y_accum, w_accum, h_accum, m1_accum, m2_accum, avgs, dimsAvg, midAvg,
     reformat, setAll, accConf, avgConf } = asmExport;
 const osc = new OffscreenCanvas(300, 300);
 const ctx1 = osc.getContext('2d');
-const cnvGL = document.createElement('canvas');
-cnvGL.hidden = true;
 const worker = new Worker("ipc.js");
 let ipcUp = false;
 let pause = false;
@@ -51,13 +49,9 @@ async function init() {
      */
     let lastFrame = null;
     var loadFlag = false;
-    var lock = false;
     const updateFrame = function () {
-        if (!lock) {
-            lock = true;
-            URL.revokeObjectURL(webcam.src);
-            webcam.src = webkitURL.createObjectURL(lastFrame);
-        }
+        webcam.src = webkitURL.createObjectURL(lastFrame);
+        lastFrame = null;
     }
 
     /**
@@ -81,21 +75,11 @@ async function init() {
     }
 
     webcam.onload = function () {
-        console.log("Initial frame loaded");
-        cnvGL.height = webcam.naturalHeight;
-        cnvGL.width = webcam.naturalWidth;
-        const drawGL = getGL(cnvGL);
-        const newHandler = () => {
-            if (!pause) {
-                drawGL(webcam);
-            }
-            lastFrame = null;
-            lock = false;
-        }
-        newHandler();
-        webcam.onload = newHandler;
+        URL.revokeObjectURL(webcam.src);
         loadFlag = true;
+        ctx1.drawImage(webcam, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, dy, dw, dh);
     };
+
     /**
      * @type {HTMLInputElement}
      */
@@ -126,8 +110,8 @@ async function init() {
                 }
                 if (!lastFrame) {
                     requestAnimationFrame(updateFrame);
+                    lastFrame = e.data;
                 }
-                lastFrame = e.data;
                 timer = setTimeout(() => {
                     console.log("No data in 1000ms. Resetting socket.");
                     killSocket(ws);
@@ -187,9 +171,9 @@ async function init() {
             checkReady(resolve);
         }
     );
-    const ratio = Math.min(canvas.width / webcam.width, canvas.height / webcam.height);
 
     console.log("Running model");
+
     /**
      * @type {Number}
      */
@@ -199,9 +183,11 @@ async function init() {
         "webgpu": 45.0,
         "wasm": 35.0
     }[tf.getBackend()];
+
+    const ratio = Math.min(canvas.width / webcam.width, canvas.height / webcam.height);
     const dy = (canvas.height - (webcam.height * ratio)) / 2;
     const dw = webcam.width * ratio;
-    const dh = webcam.height * ratio
+    const dh = webcam.height * ratio;
     const [cvs_w, cvs_h] = [canvas.width, canvas.height];
 
     /**
@@ -226,6 +212,7 @@ async function init() {
     const bigConf = .5 // min confidence for up-close detections
     const maxsquat = 2.9; // max W/H
     const closesquat = .7; // min W/H when close
+
     /**
      * @param {Number} dX 
      * @param {Number} dY 
@@ -238,14 +225,12 @@ async function init() {
     }
 
     const doInference = async function () {
-        const start = performance.now();
-        const discardOldThres = 1500.0 / weighted;
-        const trackLostThres = discardOldThres / 2.0;
-        let i = 0;
-        if (!lock) {
-            if (!pause) {
-                ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, dy, dw, dh);
-            }
+        if (!pause) {
+            const start = performance.now();
+            const discardOldThres = 1500.0 / weighted;
+            const trackLostThres = discardOldThres / 2.0;
+            let i = 0;
+
             const bitmap = await createImageBitmap(osc)
             const img = tf.browser.fromPixels(bitmap);
             const input = tf.expandDims(img, 0);
@@ -351,16 +336,17 @@ async function init() {
                 midAvg();
                 worker.postMessage([avgs[4], avgs[5], avgs[2], avgs[3], confOut[i], smoothConf, status]);
             }
+
+            const msec = performance.now() - start;
+            rolling[idx_t] = msec;
+            weighted = (4 * weighted + msec) / 5;
+            idx_t = (idx_t + 1) % 10;
+            const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
+                rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
+            perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
+                weighted.toFixed(2).padStart(6, '0') + "ms, " + (total / 10).toFixed(2).padStart(6, '0') +
+                "ms, rej " + i.toString();
         }
-        const msec = performance.now() - start;
-        rolling[idx_t] = msec;
-        weighted = (4 * weighted + msec) / 5;
-        idx_t = (idx_t + 1) % 10;
-        const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
-            rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
-        perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
-            weighted.toFixed(2).padStart(6, '0') + "ms, " + (total / 10).toFixed(2).padStart(6, '0') +
-            "ms, rej " + i.toString();
         setTimeout(() => doInference().catch(onError), 5);
     }
 
