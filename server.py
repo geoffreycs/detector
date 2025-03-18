@@ -28,6 +28,7 @@ standalone: bool = False
 dims: SynchronizedArray[float] = multiprocessing.Array('d', 6)
 conf: SynchronizedArray[float] = multiprocessing.Array('d', 2)
 state: Synchronized[int] = multiprocessing.Value('i')
+state.value = 4
 
 def internal_runner(dims: SynchronizedArray[float], conf: SynchronizedArray[float], state: Synchronized[int]):
     import socket
@@ -79,7 +80,7 @@ def internal_runner(dims: SynchronizedArray[float], conf: SynchronizedArray[floa
 def printOut():
     print(list(dims), list(conf), state.value)
     
-def getDims():
+def getDims() -> Tuple[float]:
     return tuple(dims)
 
 def getConf() -> Tuple[float]:

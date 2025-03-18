@@ -5,7 +5,7 @@ app.commandLine.appendSwitch('enable-features','SharedArrayBuffer');
 app.whenReady().then(() => {
     const win = new BrowserWindow({
         width: 700,
-        height: 470,
+        height: 475,
         webPreferences: {
             sandbox: false,
             nodeIntegration: true,

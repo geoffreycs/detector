@@ -193,14 +193,12 @@ async function init() {
     /**
      * @type {Number}
      */
-    const timings = {
-        "cpu": 50,
-        "webgl": 50,
-        "webgpu": 30,
-        "wasm": 50
+    let weighted = {
+        "cpu": 35.0,
+        "webgl": 35.0,
+        "webgpu": 45.0,
+        "wasm": 35.0
     }[tf.getBackend()];
-    const discardOldThres = timings;
-    const trackLostThres = timings / 2;
     const dy = (canvas.height - (webcam.height * ratio)) / 2;
     const dw = webcam.width * ratio;
     const dh = webcam.height * ratio
@@ -240,8 +238,10 @@ async function init() {
     }
 
     const doInference = async function () {
-        let i = 0;
         const start = performance.now();
+        const discardOldThres = 1500.0 / weighted;
+        const trackLostThres = discardOldThres / 2.0;
+        let i = 0;
         if (!lock) {
             if (!pause) {
                 ctx1.drawImage(cnvGL, 0, 0, webcam.naturalWidth, webcam.naturalHeight, 0, dy, dw, dh);
@@ -354,11 +354,13 @@ async function init() {
         }
         const msec = performance.now() - start;
         rolling[idx_t] = msec;
+        weighted = (4 * weighted + msec) / 5;
         idx_t = (idx_t + 1) % 10;
         const total = rolling[0] + rolling[1] + rolling[2] + rolling[3] + rolling[4] +
             rolling[5] + rolling[6] + rolling[7] + rolling[8] + rolling[9];
         perf.innerText = msec.toFixed(2).padStart(6, '0') + "ms, " +
-            (total / 10).toFixed(2).padStart(6, '0') + "ms, rej " + i.toString();
+            weighted.toFixed(2).padStart(6, '0') + "ms, " + (total / 10).toFixed(2).padStart(6, '0') +
+            "ms, rej " + i.toString();
         setTimeout(() => doInference().catch(onError), 5);
     }
 
