@@ -25,12 +25,12 @@ class setInterval:
         self.stopEvent.set()
 
 standalone: bool = False
-dims: SynchronizedArray[float] = multiprocessing.Array('d', 6)
-conf: SynchronizedArray[float] = multiprocessing.Array('d', 2)
-state: Synchronized[int] = multiprocessing.Value('i')
+dims: SynchronizedArray = multiprocessing.Array('d', 6)
+conf: SynchronizedArray = multiprocessing.Array('d', 2)
+state: Synchronized = multiprocessing.Value('i')
 state.value = 4
 
-def internal_runner(dims: SynchronizedArray[float], conf: SynchronizedArray[float], state: Synchronized[int]):
+def internal_runner(dims: SynchronizedArray, conf: SynchronizedArray, state: Synchronized):
     import socket
     import json
 

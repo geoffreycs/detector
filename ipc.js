@@ -7,13 +7,11 @@ let up = false;
  */
 let client = null;
 
-/**
- * @param {net.Socket} client 
- */
-const onError = function (client) {
+const onError = function () {
     client.removeAllListeners();
     // client.end();
     client.destroy();
+    client = null;
     setTimeout(main, 500);
 }
 
@@ -38,7 +36,7 @@ function main() {
         if (!lock) {
             lock = true;
             postMessage("Socket closed \"gracefully\"");
-            onError(client);
+            onError();
         }
     });
 
@@ -46,7 +44,7 @@ function main() {
         if (!lock) {
             lock = true;
             postMessage(err);
-            onError(client);
+            onError();
         }
     });
 }
