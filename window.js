@@ -147,7 +147,6 @@ async function init() {
     tflite.setWasmPath('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/')
     tflite.setWasmPath('http://127.0.0.1:' + new String(port) + '/');
     const model = await tflite.loadTFLiteModel(fs.readFileSync("drone/drone-detect1.tflite"));
-    // const model = await tflite.loadTFLiteModel(new Uint8Array(fs.readFileSync("alexandra/alexandrainst_drone_detect.tflite")).buffer);
     console.log("Closing HTTP server")
     server.close();
     server.removeAllListeners();
@@ -333,8 +332,8 @@ async function init() {
                 + String(lostCount).padStart(3, '0');
 
             if (ipcUp) {
-                midAvg();
-                worker.postMessage([avgs[4], avgs[5], avgs[2], avgs[3], confOut[i], smoothConf, status]);
+                //midAvg();
+                worker.postMessage([avgs[0], avgs[1], avgs[2], avgs[3], confOut[i], smoothConf, status]);
             }
 
             const msec = performance.now() - start;
